@@ -67,49 +67,30 @@ class LUNAWrapper:
         self.ifp_type = ifp_type
     
     def calculate_interactions(self, protein_path, ligand_mol, ligand_name="ligand"):
-        pdb_parser = PDBParser(PERMISSIVE=True, QUIET=True)
+        # Use the exact pattern from luna_utils.py
+        pdb_parser = PDBParser(PERMISSIVE=True, QUIET=True, 
+                            FIX_EMPTY_CHAINS=True,
+                            FIX_ATOM_NAME_CONFLICT=True, 
+                            FIX_OBABEL_FLAGS=False)
+        
         structure = pdb_parser.get_structure("protein", protein_path)
         
-        # Get available chain IDs from the protein structure
-        available_chains = [chain.id for chain in structure[0]]
-        print(f"Available chains in protein: {available_chains}")
-        
-        # Create entry with proper chain handling
+        # Create entry following autoparty pattern
         entry = MolFileEntry.from_mol_obj("protein", ligand_name, ligand_mol)
         entry.pdb_file = protein_path
         
-        # Set the chain ID to the first available chain if default 'z' doesn't exist
-        if hasattr(entry, 'chain_id') and entry.chain_id == 'z' and 'z' not in available_chains:
-            if available_chains:
-                print(f"Changing chain ID from 'z' to '{available_chains[0]}'")
-                entry.chain_id = available_chains[0]
+        # Get structure without modifying entry properties
+        structure = entry.get_biopython_structure(structure, pdb_parser)
         
-        try:
-            structure = entry.get_biopython_structure(structure, pdb_parser)
-        except KeyError as e:
-            if "'z'" in str(e):
-                # Try with the first available chain
-                if available_chains:
-                    print(f"Chain 'z' not found, trying with chain '{available_chains[0]}'")
-                    entry.chain_id = available_chains[0]
-                    structure = entry.get_biopython_structure(structure, pdb_parser)
-                else:
-                    raise ValueError(f"No chains found in protein structure at {protein_path}")
-            else:
-                raise
+        # Determine if we need to add hydrogens (from autoparty)
+        add_hydrogen = self._decide_hydrogen_addition(True, pdb_parser.get_header(), entry)
+        
         ligand = get_entity_from_entry(structure, entry)
         ligand.set_as_target(is_target=True)
         
-        feature_factory = ChemicalFeatures.BuildFeatureFactory(self.params['atom_prop_file'])
-        feature_extractor = FeatureExtractor(feature_factory)
-        perceiver = AtomGroupPerceiver(feature_extractor, add_h=True, ph=7.4, amend_mol=True, tmp_path='/tmp')
-        
-        radius = self.params['inter_calc'].inter_config.get("bsite_cutoff", 6.2)
-        nb_pairs = get_contacts_with(structure[0], ligand, level='R', radius=radius)
-        nb_compounds = set([x[0] for x in nb_pairs])
-        
-        mol_objs_dict = {entry.get_biopython_key(): entry.mol_obj}
-        atm_grps_mngr = perceiver.perceive_atom_groups(nb_compounds, mol_objs_dict=mol_objs_dict)
+        # Use autoparty's perceive_chemical_groups function pattern
+        atm_grps_mngr = self._perceive_chemical_groups(entry, structure[0], ligand, add_hydrogen)
+        atm_grps_mngr.entry = entry
         
         calc_func = self.params['inter_calc'].calc_interactions
         interactions_mngr = calc_func(atm_grps_mngr.atm_grps)
@@ -117,30 +98,71 @@ class LUNAWrapper:
         
         atm_grps_mngr.merge_hydrophobic_atoms(interactions_mngr)
         
+        # Apply binding mode filter
         bm_filter_func = interactions_mngr.filter_out_by_binding_mode
         bm_filter_func(self.params["binding_mode_filter"])
         
         ifp = self._create_ifp(atm_grps_mngr)
         
         return ifp, interactions_mngr
+
+    def _decide_hydrogen_addition(self, try_h_addition, pdb_header, entry):
+        # From autoparty luna_utils.py
+        if try_h_addition:
+            if "structure_method" in pdb_header:
+                method = pdb_header["structure_method"]
+                # If the method is not a NMR type does not add hydrogen as it usually already has hydrogens.
+                if method.upper() in ['NMR']:  # NMR_METHODS from luna.util.default_values
+                    return False
+            return True
+        return False
+
+    def _perceive_chemical_groups(self, entry, entity, ligand, add_h=False):
+        # From autoparty pattern
+        perceiver = self._get_perceiver(add_h=add_h)
+        
+        radius = self.params['inter_calc'].inter_config.get("bsite_cutoff", 6.2)
+        nb_pairs = get_contacts_with(entity, ligand, level='R', radius=radius)
+        nb_compounds = set([x[0] for x in nb_pairs])
+        
+        mol_objs_dict = {}
+        if isinstance(entry, MolFileEntry):
+            mol_objs_dict[entry.get_biopython_key()] = entry.mol_obj
+        
+        atm_grps_mngr = perceiver.perceive_atom_groups(nb_compounds, mol_objs_dict=mol_objs_dict)
+        
+        return atm_grps_mngr
+
+    def _get_perceiver(self, add_h=False, cache=None):
+        # From autoparty pattern
+        feature_factory = ChemicalFeatures.BuildFeatureFactory(self.params['atom_prop_file'])
+        feature_extractor = FeatureExtractor(feature_factory)
+        
+        perceiver = AtomGroupPerceiver(feature_extractor, 
+            add_h=add_h, ph=self.params.get('ph', 7.4), 
+            amend_mol=self.params.get('amend_mol', True), 
+            cache=cache, 
+            tmp_path='/tmp')
+        return perceiver
     
     def _create_ifp(self, atm_grps_mngr):
         ifp_params = self.params
         
-        # Map fingerprint types to LUNA IFPType
-        ifp_type_mapping = {
-            'PLIP': 'PLIP',
-            'PLIF': 'PLIF', 
-            'LUNA': ifp_params["ifp_type"]  # Use config default for LUNA
-        }
+        # Get the IFP type from config - it should already be an IFPType enum
+        config_ifp_type = ifp_params["ifp_type"]
         
-        luna_ifp_type = ifp_type_mapping.get(self.ifp_type, ifp_params["ifp_type"])
+        # Use the config value directly since LUNA loads it as an enum
+        luna_ifp_type = config_ifp_type
+        
+        # Debug: print the type to understand what we're working with
+        print(f"Debug: ifp_type from config: {config_ifp_type} (type: {type(config_ifp_type)})")
+        print(f"Debug: self.ifp_type: {self.ifp_type}")
         
         sg = ShellGenerator(
             ifp_params["ifp_num_levels"], 
             ifp_params["ifp_radius_step"],
             diff_comp_classes=ifp_params["ifp_diff_comp_classes"],
-            ifp_type=IFPType[luna_ifp_type]
+            ifp_type=luna_ifp_type
         )
         sm = sg.create_shells(atm_grps_mngr)
         
