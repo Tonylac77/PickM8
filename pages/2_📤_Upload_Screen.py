@@ -39,8 +39,30 @@ def process_molecules(protein_path, molecules, luna_wrapper, fp_handler):
             logger.debug(f"Interactions calculated for {mol['name']}: {len(interactions.interactions) if interactions else 0} interactions")
             
             # Step 3: Store interaction data
-            mol['ifp'] = json.dumps({str(k): v for k, v in ifp.counts.items()})
+            mol['ifp'] = json.dumps({str(k): int(v) for k, v in ifp.counts.items()})
             mol['interactions'] = json.dumps([i.as_json() for i in interactions.interactions])
+            try:
+                mol['interactions'] = json.dumps([i.as_json() for i in interactions.interactions])
+            except AttributeError as e:
+                if "'NoneType' object has no attribute 'id'" in str(e):
+                    logger.warning(f"Parent chain reference missing for {mol['name']}, using safe serialization")
+                    # Use alternative serialization that handles missing parents
+                    safe_interactions = []
+                    for interaction in interactions.interactions:
+                        try:
+                            safe_interactions.append(interaction.as_json())
+                        except AttributeError:
+                            # Create minimal representation
+                            safe_interactions.append({
+                                'type': str(interaction.type),
+                                'src_grp': 'unknown',
+                                'trgt_grp': 'unknown', 
+                                'distance': getattr(interaction, 'distance', 0.0)
+                            })
+                    mol['interactions'] = json.dumps(safe_interactions)
+                else:
+                    raise
+
             mol['num_interactions'] = len(interactions.interactions)
             logger.debug(f"Interaction data stored for {mol['name']}")
             
