@@ -130,7 +130,7 @@ def main():
         selected_grade = st.radio(
             "Select grade",
             grade_options,
-            index=grade_options.index(current_grade) if current_grade else None,
+            index=grade_options.index(current_grade) if current_grade else 0,
             key=f"grade_{current_mol['id']}"
         )
         
@@ -140,7 +140,7 @@ def main():
             
             if st.session_state.current_mol_idx < len(mol_list) - 1:
                 st.session_state.current_mol_idx += 1
-                st.rerun()
+                st.experimental_rerun()
         
         st.divider()
         
@@ -148,12 +148,12 @@ def main():
         with col_prev:
             if st.button("← Previous", disabled=st.session_state.current_mol_idx == 0):
                 st.session_state.current_mol_idx -= 1
-                st.rerun()
+                st.experimental_rerun()
         
         with col_next:
             if st.button("Next →", disabled=st.session_state.current_mol_idx >= len(mol_list) - 1):
                 st.session_state.current_mol_idx += 1
-                st.rerun()
+                st.experimental_rerun()
         
         st.divider()
         st.caption(f"Molecule {st.session_state.current_mol_idx + 1} of {len(mol_list)}")
@@ -161,10 +161,10 @@ def main():
         # Molecule list
         st.subheader("Molecule List")
         for i, mol in enumerate(mol_list[:10]):
-            prefix = "✓ " if grades_df and not grades_df.filter(pl.col('mol_id') == mol['id']).is_empty() else "  "
+            prefix = "✓ " if grades_df is not None and not grades_df.filter(pl.col('mol_id') == mol['id']).is_empty() else "  "
             if st.button(f"{prefix}{mol['name']}", key=f"mol_btn_{mol['id']}"):
                 st.session_state.current_mol_idx = i
-                st.rerun()
+                st.experimental_rerun()
 
 if __name__ == "__main__":
     main()
