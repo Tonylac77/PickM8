@@ -1,0 +1,88 @@
+import polars as pl
+from pathlib import Path
+import json
+import numpy as np
+from datetime import datetime
+from rdkit import Chem
+import gzip
+
+class DataHandler:
+    def __init__(self, session_id):
+        self.session_id = session_id
+        self.session_path = Path(f"data/sessions/{session_id}")
+        self.session_path.mkdir(parents=True, exist_ok=True)
+    
+    def save_molecules(self, molecules_data):
+        df = pl.DataFrame(molecules_data)
+        df.write_parquet(self.session_path / "molecules.parquet")
+    
+    def save_grades(self, grades_data):
+        df = pl.DataFrame(grades_data)
+        df.write_parquet(self.session_path / "grades.parquet")
+    
+    def save_predictions(self, predictions_data):
+        df = pl.DataFrame(predictions_data)
+        df.write_parquet(self.session_path / "predictions.parquet")
+    
+    def load_molecules(self):
+        path = self.session_path / "molecules.parquet"
+        if path.exists():
+            return pl.read_parquet(path)
+        return None
+    
+    def load_grades(self):
+        path = self.session_path / "grades.parquet"
+        if path.exists():
+            return pl.read_parquet(path)
+        return None
+    
+    def load_predictions(self):
+        path = self.session_path / "predictions.parquet"
+        if path.exists():
+            return pl.read_parquet(path)
+        return None
+    
+    def save_session_state(self, state_dict):
+        with open(self.session_path / "session_state.json", 'w') as f:
+            json.dump(state_dict, f, default=str)
+    
+    def load_session_state(self):
+        path = self.session_path / "session_state.json"
+        if path.exists():
+            with open(path, 'r') as f:
+                return json.load(f)
+        return None
+
+class MoleculeReader:
+    @staticmethod
+    def read_sdf(filepath, score_label='score'):
+        molecules = []
+        
+        if filepath.endswith('.gz'):
+            with gzip.open(filepath, 'rt') as f:
+                supplier = Chem.ForwardSDMolSupplier(f)
+        else:
+            supplier = Chem.ForwardSDMolSupplier(filepath)
+        
+        for i, mol in enumerate(supplier):
+            if mol is None:
+                continue
+            
+            try:
+                mol_data = {
+                    'id': i,
+                    'name': mol.GetProp("_Name"),
+                    'mol_block': Chem.MolToMolBlock(mol),
+                    'smiles': Chem.MolToSmiles(mol),
+                    'score': float(mol.GetProp(score_label)) if mol.HasProp(score_label) else 0.0
+                }
+                molecules.append(mol_data)
+            except Exception as e:
+                continue
+        
+        return molecules
+    
+    @staticmethod
+    def read_pdb(filepath):
+        with open(filepath, 'r') as f:
+            return f.read()

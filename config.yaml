@@ -1,0 +1,35 @@
+app:
+  name: "PickM8"
+  version: "0.1.0"
+  
+storage:
+  session_dir: "data/sessions"
+  defaults_dir: "data/defaults"
+  user_models_dir: "data/user_models"
+  
+luna:
+  config_file: "data/defaults/LUNA_default.cfg"
+  atom_props: "data/defaults/atom_prop_default.fdef"
+  interaction_config: "data/defaults/inter_default.cfg"
+
+fingerprinting:
+  default_type: "LUNA"  # Options: PLIP, PLIF, LUNA
+  molecule_fp_type: "morgan"  # RDKit fingerprint type
+  molecule_fp_size: 2048
+  molecule_fp_radius: 2
+  
+models:
+  default_type: "ensemble"
+  ensemble_size: 3
+  max_epochs: 100
+  learning_rate: 0.0001
+  
+visualization:
+  mol_viewer_height: 600
+  interaction_colors:
+    "Hydrogen bond": "#4C4CFF"
+    "Hydrophobic": "#FF7F00"
+    "Pi-stacking": "#FF3333"
+    "Halogen bond": "#7FFFFF"
+    "Salt bridge": "#339933"
+    "Water-bridged hydrogen bond": "#BFBFFF"
