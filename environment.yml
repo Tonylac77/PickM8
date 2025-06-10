@@ -1,0 +1,32 @@
+name: pickm8
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python<=3.8
+  - streamlit>=1.35.0
+  - polars
+  - rdkit
+  - biopython<=1.75
+  - numpy
+  - pandas
+  - scikit-learn
+  - pytorch>=2.0.0
+  - pyyaml
+  - tqdm
+  - plotly
+  - pip
+  - colorlog
+  - matplotlib
+  - seaborn
+  - networkx
+  - openbabel
+  - pymol
+  - scipy
+  - xopen
+  - pip:
+    - streamlit-molstar>=0.3.0
+    - plip
+    - prolif
+    - MDAnalysis
+    - posecheck
