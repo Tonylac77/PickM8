@@ -6,7 +6,7 @@ import yaml
 from pathlib import Path
 
 class FingerprintHandler:
-    def __init__(self, fp_type='morgan', fp_size=2048, radius=2, interaction_fp_type='LUNA'):
+    def __init__(self, fp_type='morgan', fp_size=2048, radius=2, interaction_fp_type='PLIP'):
         self.fp_type = fp_type
         self.fp_size = fp_size
         self.radius = radius
@@ -25,7 +25,7 @@ class FingerprintHandler:
                 fp_type=fp_config.get('molecule_fp_type', 'morgan'),
                 fp_size=fp_config.get('molecule_fp_size', 2048),
                 radius=fp_config.get('molecule_fp_radius', 2),
-                interaction_fp_type=fp_config.get('default_type', 'LUNA')
+                interaction_fp_type=fp_config.get('default_type', 'PLIP')
             )
         else:
             return cls()
@@ -66,6 +66,6 @@ class FingerprintHandler:
     
     def set_interaction_fingerprint_type(self, fp_type):
         """Set the interaction fingerprint type"""
-        if fp_type not in ['PLIP', 'PLIF', 'LUNA']:
-            raise ValueError(f"Invalid fingerprint type: {fp_type}. Must be one of: PLIP, PLIF, LUNA")
+        if fp_type not in ['PLIP', 'PROLIF']:
+            raise ValueError(f"Invalid fingerprint type: {fp_type}. Must be one of: PLIP, PROLIF")
         self.interaction_fp_type = fp_type
