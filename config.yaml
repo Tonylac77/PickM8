@@ -7,13 +7,8 @@ storage:
   defaults_dir: "data/defaults"
   user_models_dir: "data/user_models"
   
-luna:
-  config_file: "data/defaults/LUNA_default.cfg"
-  atom_props: "data/defaults/atom_prop_default.fdef"
-  interaction_config: "data/defaults/inter_default.cfg"
-
 fingerprinting:
-  default_type: "LUNA"  # Options: PLIP, PLIF, LUNA
+  default_type: "PLIP"  # Options: PLIP, PROLIF
   molecule_fp_type: "morgan"  # RDKit fingerprint type
   molecule_fp_size: 2048
   molecule_fp_radius: 2
