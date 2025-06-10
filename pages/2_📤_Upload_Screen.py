@@ -1,6 +1,6 @@
 import streamlit as st
 from utils.io_handlers import DataHandler, MoleculeReader
-from core.luna_wrapper import LUNAWrapper
+from core.interaction_wrapper import InteractionWrapper
 from core.fingerprints import FingerprintHandler
 import tempfile
 from pathlib import Path
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 st.set_page_config(page_title="Upload Screen - PickM8", page_icon="📤", layout="wide")
 
-def process_molecules(protein_path, molecules, luna_wrapper, fp_handler):
+def process_molecules(protein_path, molecules, interaction_wrapper, fp_handler):
     progress_bar = st.progress(0)
     status = st.empty()
     
@@ -35,35 +35,19 @@ def process_molecules(protein_path, molecules, luna_wrapper, fp_handler):
             
             # Step 2: Calculate interactions
             logger.debug(f"Calculating interactions for {mol['name']}")
-            ifp, interactions = luna_wrapper.calculate_interactions(protein_path, mol_obj, mol['name'])
-            logger.debug(f"Interactions calculated for {mol['name']}: {len(interactions.interactions) if interactions else 0} interactions")
+            ifp, interactions = interaction_wrapper.calculate_interactions(protein_path, mol_obj, mol['name'])
+            logger.debug(f"Interactions calculated for {mol['name']}: {interactions.get('total_interactions', 0) if interactions else 0} interactions")
             
             # Step 3: Store interaction data
-            mol['ifp'] = json.dumps({str(k): int(v) for k, v in ifp.counts.items()})
-            mol['interactions'] = json.dumps([i.as_json() for i in interactions.interactions])
-            try:
-                mol['interactions'] = json.dumps([i.as_json() for i in interactions.interactions])
-            except AttributeError as e:
-                if "'NoneType' object has no attribute 'id'" in str(e):
-                    logger.warning(f"Parent chain reference missing for {mol['name']}, using safe serialization")
-                    # Use alternative serialization that handles missing parents
-                    safe_interactions = []
-                    for interaction in interactions.interactions:
-                        try:
-                            safe_interactions.append(interaction.as_json())
-                        except AttributeError:
-                            # Create minimal representation
-                            safe_interactions.append({
-                                'type': str(interaction.type),
-                                'src_grp': 'unknown',
-                                'trgt_grp': 'unknown', 
-                                'distance': getattr(interaction, 'distance', 0.0)
-                            })
-                    mol['interactions'] = json.dumps(safe_interactions)
-                else:
-                    raise
-
-            mol['num_interactions'] = len(interactions.interactions)
+            if isinstance(ifp, dict):
+                mol['ifp'] = json.dumps({str(k): int(v) for k, v in ifp.items()})
+            else:
+                # Handle numpy array from ProLIF or binary array from PLIP
+                mol['ifp'] = json.dumps({str(i): int(v) for i, v in enumerate(ifp) if v > 0})
+            
+            # Store interaction summary
+            mol['interactions'] = json.dumps(interactions.get('interactions', []))
+            mol['num_interactions'] = interactions.get('total_interactions', 0)
             logger.debug(f"Interaction data stored for {mol['name']}")
             
             # Step 4: Calculate fingerprints
@@ -71,6 +55,14 @@ def process_molecules(protein_path, molecules, luna_wrapper, fp_handler):
             mol_fp = fp_handler.compute_fingerprint(mol_obj)
             mol['morgan_fp'] = mol_fp.tolist()
             logger.debug(f"Fingerprint computed for {mol['name']}")
+            
+            # Step 5: Store additional SDF properties
+            # Extract any additional properties from the original molecule
+            if 'original_mol' in mol:  # If we stored the original RDKit mol
+                props = mol['original_mol'].GetPropsAsDict()
+                for prop_name, prop_value in props.items():
+                    if prop_name not in ['_Name', mol.get('score_label', 'score')]:
+                        mol[f'prop_{prop_name}'] = prop_value
             
             processed_molecules.append(mol)
             logger.info(f"Successfully processed molecule {mol['name']}")
@@ -133,6 +125,45 @@ def main():
                 tmp.write(ligand_file.getvalue())
                 ligand_path = tmp.name
     
+    # Fingerprint Configuration Section
+    st.subheader("3. Fingerprint Configuration")
+    
+    st.info("💡 **Fingerprint Selection Tips:**\n"
+           "• **PLIP**: Faster processing, good for quick analysis with basic interaction types\n"
+           "• **ProLIF**: More comprehensive analysis, slower but captures more interaction details\n"
+           "• **Morgan**: Standard circular fingerprints, good general performance\n"
+           "• **RDKit**: Topological fingerprints, captures different molecular features")
+    
+    col3, col4 = st.columns(2)
+    
+    with col3:
+        interaction_fp_type = st.selectbox(
+            "Interaction Fingerprint Type",
+            options=["PLIP", "PROLIF"],
+            index=0,
+            help="PLIP: Fast protein-ligand interaction profiler\nProLIF: Comprehensive interaction fingerprints using MDAnalysis"
+        )
+        
+        # Show available interaction types for selected method
+        if interaction_fp_type == "PLIP":
+            st.caption("📋 PLIP detects: Hydrogen bonds, Hydrophobic contacts, π-stacking, Salt bridges, Halogen bonds")
+        else:
+            st.caption("📋 ProLIF detects: HB Acceptor/Donor, Hydrophobic, π-stacking, Ionic interactions, Cation-π, and more")
+    
+    with col4:
+        molecular_fp_type = st.selectbox(
+            "Molecular Fingerprint Type", 
+            options=["morgan", "rdkit"],
+            index=0,
+            help="Morgan: Circular fingerprints based on atom environments\nRDKit: Topological fingerprints"
+        )
+        
+        # Show fingerprint details
+        if molecular_fp_type == "morgan":
+            st.caption("🔬 Morgan fingerprints: Radius-based circular patterns, 2048 bits")
+        else:
+            st.caption("🔬 RDKit fingerprints: Topological path-based patterns, 2048 bits")
+    
     if st.button("Process Molecules", type="primary", disabled=not (protein_file and ligand_file)):
         try:
             logger.info("Starting molecule processing")
@@ -144,20 +175,24 @@ def main():
                 st.success(f"Loaded {len(molecules)} molecules")
             
             if molecules:
-                logger.debug("Initializing LUNA wrapper and fingerprint handler")
-                fp_handler = FingerprintHandler.from_config()
-                luna_wrapper = LUNAWrapper(ifp_type=fp_handler.get_interaction_fingerprint_type())
-                logger.debug(f"Wrappers initialized successfully with {fp_handler.get_interaction_fingerprint_type()} fingerprinting")
+                logger.debug("Initializing interaction wrapper and fingerprint handler")
+                # Create fingerprint handler with user-selected options
+                fp_handler = FingerprintHandler(
+                    fp_type=molecular_fp_type,
+                    interaction_fp_type=interaction_fp_type
+                )
+                interaction_wrapper = InteractionWrapper(ifp_type=interaction_fp_type)
+                logger.debug(f"Wrappers initialized successfully with {interaction_fp_type} interaction fingerprints and {molecular_fp_type} molecular fingerprints")
                 
                 st.subheader("Processing Interactions")
                 logger.info("Starting molecule processing with interactions")
                 
-                st.info(f"🧬 Using **{fp_handler.get_interaction_fingerprint_type()}** interaction fingerprints and **{fp_handler.fp_type}** molecular fingerprints")
+                st.info(f"🧬 Using **{interaction_fp_type}** interaction fingerprints and **{molecular_fp_type}** molecular fingerprints")
                 
                 processed_molecules = process_molecules(
                     st.session_state.protein_path, 
                     molecules, 
-                    luna_wrapper, 
+                    interaction_wrapper, 
                     fp_handler
                 )
                 
@@ -207,6 +242,8 @@ def main():
                     'ligand_file_name': ligand_file.name if ligand_file else 'No file',
                     'score_label': score_label
                 })
+        
+        if molecules and len(processed_molecules) > 0:
             st.balloons()
             
             if st.button("Proceed to Active Learning", type="primary"):

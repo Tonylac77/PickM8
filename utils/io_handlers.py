@@ -69,13 +69,35 @@ class MoleculeReader:
                 continue
             
             try:
+                # Get all properties from the molecule
+                all_props = mol.GetPropsAsDict()
+                
                 mol_data = {
                     'id': i,
-                    'name': mol.GetProp("_Name"),
+                    'name': mol.GetProp("_Name") if mol.HasProp("_Name") else f"mol_{i}",
                     'mol_block': Chem.MolToMolBlock(mol),
                     'smiles': Chem.MolToSmiles(mol),
                     'score': float(mol.GetProp(score_label)) if mol.HasProp(score_label) else 0.0
                 }
+                
+                # Add all other properties as additional columns
+                for prop_name, prop_value in all_props.items():
+                    if prop_name not in ['_Name', score_label]:
+                        # Try to convert to appropriate type
+                        try:
+                            # Try float first
+                            prop_value = float(prop_value)
+                        except (ValueError, TypeError):
+                            try:
+                                # Try int
+                                prop_value = int(prop_value)
+                            except (ValueError, TypeError):
+                                # Keep as string
+                                pass
+                        
+                        # Store with prop_ prefix to avoid conflicts
+                        mol_data[f'prop_{prop_name}'] = prop_value
+                
                 molecules.append(mol_data)
             except Exception as e:
                 continue
