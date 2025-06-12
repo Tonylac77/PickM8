@@ -3,11 +3,8 @@ from utils.io_handlers import DataHandler
 from utils.visualization import MoleculeVisualizer
 from utils.molecule_utils import filter_molecules_by_grade_status, sort_molecules
 from utils.posecheck_utils import PoseCheckAnalyzer
-from utils.poseview_utils import PoseViewAPI
 import polars as pl
 from datetime import datetime
-import json
-import base64
 
 st.set_page_config(page_title="Active Learning - PickM8", page_icon="🎯", layout="wide")
 
@@ -22,10 +19,6 @@ def init_page_state():
         st.session_state.history = []
     if 'posecheck_data' not in st.session_state:
         st.session_state.posecheck_data = {}
-    if 'poseview_cache' not in st.session_state:
-        st.session_state.poseview_cache = {}
-    if 'poseview_api' not in st.session_state:
-        st.session_state.poseview_api = PoseViewAPI()
 
 def save_grade(mol_id, grade):
     data_handler = DataHandler(st.session_state.session_id)
@@ -48,36 +41,6 @@ def save_grade(mol_id, grade):
     if mol_id not in st.session_state.get('grades', {}):
         st.session_state.grades[mol_id] = grade
 
-def generate_poseview_diagram(session_state, current_mol):
-    """Generate 2D interaction diagram using PoseView API"""
-    mol_id = current_mol['id']
-    
-    # Check cache first
-    if mol_id in st.session_state.poseview_cache:
-        return st.session_state.poseview_cache[mol_id]
-    
-    if not session_state or 'protein_content' not in session_state:
-        return None
-    
-    try:
-        with st.spinner("Generating 2D interaction diagram..."):
-            result = st.session_state.poseview_api.generate_interaction_diagram(
-                session_state['protein_content'],
-                current_mol['mol_block'],
-                current_mol['name']
-            )
-            
-            if result:
-                # Cache the result
-                st.session_state.poseview_cache[mol_id] = result
-                return result
-            else:
-                st.warning("Could not generate 2D interaction diagram")
-                return None
-                
-    except Exception as e:
-        st.error(f"Error generating diagram: {str(e)}")
-        return None
 
 def create_molecule_table(molecules_df, grades_df, posecheck_data):
     """Create a table with molecule properties"""
@@ -119,28 +82,45 @@ def calculate_posecheck_metrics(session_state, molecules_df):
     
     posecheck_data = st.session_state.get('posecheck_data', {})
     
-    # Calculate metrics for molecules that don't have them yet
+    # Get molecules that need calculation
+    molecules_to_calculate = []
+    mol_ids_to_calculate = []
+    
     for mol in molecules_df.to_dicts():
         mol_id = mol['id']
         if mol_id not in posecheck_data:
-            try:
-                if 'posecheck_analyzer' in st.session_state:
-                    clashes, strain = st.session_state.posecheck_analyzer.analyze_molecule(mol['mol_block'])
-                    posecheck_data[mol_id] = {
-                        'clashes': clashes,
-                        'strain_energy': strain
-                    }
-                else:
-                    posecheck_data[mol_id] = {
-                        'clashes': 0,
-                        'strain_energy': 0.0
-                    }
-            except Exception as e:
-                st.warning(f"Could not calculate PoseCheck metrics for {mol['name']}: {str(e)}")
+            molecules_to_calculate.append(mol['mol_block'])
+            mol_ids_to_calculate.append(mol_id)
+    
+    # If we have molecules to calculate and a valid analyzer
+    if molecules_to_calculate and 'posecheck_analyzer' in st.session_state:
+        try:
+            # Use parallel processing for batch calculation
+            clashes_list, strain_list = st.session_state.posecheck_analyzer.analyze_multiple_molecules_smart(
+                molecules_to_calculate
+            )
+            
+            # Store results
+            for i, mol_id in enumerate(mol_ids_to_calculate):
+                posecheck_data[mol_id] = {
+                    'clashes': clashes_list[i],
+                    'strain_energy': strain_list[i]
+                }
+        except Exception as e:
+            st.warning(f"Could not calculate PoseCheck metrics: {str(e)}")
+            # Fallback to default values
+            for mol_id in mol_ids_to_calculate:
                 posecheck_data[mol_id] = {
                     'clashes': 0,
                     'strain_energy': 0.0
                 }
+    else:
+        # No analyzer available, use default values
+        for mol_id in mol_ids_to_calculate:
+            posecheck_data[mol_id] = {
+                'clashes': 0,
+                'strain_energy': 0.0
+            }
     
     st.session_state.posecheck_data = posecheck_data
     return posecheck_data
@@ -161,9 +141,18 @@ def main():
         st.error("No molecules loaded. Please upload a screen first.")
         return
     
-    # Calculate PoseCheck metrics
-    with st.spinner("Calculating pose quality metrics..."):
+    # Calculate PoseCheck metrics for all molecules upfront
+    with st.spinner("Calculating pose quality metrics for all molecules..."):
         posecheck_data = calculate_posecheck_metrics(session_state, molecules_df)
+        num_calculated = len([mol_id for mol_id in posecheck_data.keys() if mol_id])
+        if num_calculated > 0:
+            st.success(f"✅ Calculated metrics for {num_calculated} molecules")
+    
+    # Initialize any missing data
+    for mol in molecules_df.to_dicts():
+        mol_id = mol['id']
+        if mol_id not in posecheck_data:
+            posecheck_data[mol_id] = {'clashes': 0, 'strain_energy': 0.0}
     
     # Sidebar controls
     with st.sidebar:
@@ -220,77 +209,20 @@ def main():
     mol_list = sorted_df.to_dicts()
     current_mol = mol_list[st.session_state.current_mol_idx]
     
-    # Sidebar controls
-    with st.sidebar:
-        st.subheader("🎛️ Controls")
-        
-        mode = st.selectbox(
-            "Mode",
-            ["annotate", "review"],
-            index=0 if st.session_state.mode == "annotate" else 1
-        )
-        st.session_state.mode = mode
-        
-        sort_options = ["score"]
-        if predictions_df is not None and not predictions_df.is_empty():
-            sort_options.extend(["uncertainty", "prediction"])
-        
-        sort_method = st.selectbox(
-            "Sort by",
-            sort_options,
-            index=sort_options.index(st.session_state.sort_method) if st.session_state.sort_method in sort_options else 0
-        )
-        st.session_state.sort_method = sort_method
-        
-        st.divider()
-        
-        # Enhanced metrics with colors
-        col1, col2 = st.columns(2)
-        with col1:
-            graded_count = len(grades_df) if grades_df is not None else 0
-            st.metric("✅ Graded", graded_count)
-        with col2:
-            st.metric("📊 Total", len(molecules_df))
-        
-        # Progress bar
-        if grades_df is not None:
-            progress = len(grades_df) / len(molecules_df)
-            st.progress(progress)
-            st.caption(f"{progress:.1%} Complete")
-        
-        st.divider()
-        
-        if st.button("🤖 Train Model", type="primary", disabled=grades_df is None or len(grades_df) < 10):
-            st.switch_page("pages/5_⚙️_Settings.py")
-    
-    # Filter and sort molecules
-    filtered_df = filter_molecules_by_grade_status(molecules_df, grades_df, mode)
-    sorted_df = sort_molecules(filtered_df, predictions_df, sort_method)
-    
-    if sorted_df.is_empty():
-        st.info("No molecules to show in current mode.")
-        return
-    
-    # Main content
-    mol_list = sorted_df.to_dicts()
-    current_mol = mol_list[st.session_state.current_mol_idx]
-    
-    # Enhanced layout with 2D diagram
-    col1, col2, col3 = st.columns([2, 1, 1])
+    # Two-column layout: main content and grading interface
+    col1, col2 = st.columns([4, 1])
     
     with col1:
         st.subheader(f"🧬 Molecule: {current_mol['name']}")
         
-        # Enhanced molecule info with colors
-        info_cols = st.columns(4)
+        # Compact molecule info
+        pc_data = posecheck_data.get(current_mol['id'], {'clashes': 0, 'strain_energy': 0.0})
+        info_cols = st.columns(2)
         with info_cols[0]:
             st.metric("📊 Score", f"{current_mol['score']:.3f}")
-        with info_cols[1]:
-            pc_data = posecheck_data.get(current_mol['id'], {'clashes': 0, 'strain_energy': 0.0})
-            st.metric("⚠️ Clashes", pc_data['clashes'])
-        with info_cols[2]:
             st.metric("⚡ Strain Energy", f"{pc_data['strain_energy']:.2f}")
-        with info_cols[3]:
+        with info_cols[1]:
+            st.metric("⚠️ Clashes", pc_data['clashes'])
             st.metric("🔬 Interactions", current_mol.get('num_interactions', 0))
         
         if session_state and 'protein_content' in session_state:
@@ -306,56 +238,27 @@ def main():
             visualizer.show_interaction_legend(interaction_summary)
     
     with col2:
-        st.subheader("📋 2D Interaction Pattern")
-        
-        # Generate and display PoseView diagram
-        poseview_result = generate_poseview_diagram(session_state, current_mol)
-        
-        if poseview_result:
-            try:
-                # Try to get PNG image
-                png_data = st.session_state.poseview_api.get_png_image_data(poseview_result)
-                if png_data:
-                    st.image(png_data, caption="2D Interaction Diagram", use_column_width=True)
-                else:
-                    # Try SVG as fallback
-                    svg_data = st.session_state.poseview_api.get_svg_image_data(poseview_result)
-                    if svg_data:
-                        st.components.v1.html(
-                            f'<div style="display: flex; justify-content: center;">{svg_data}</div>',
-                            height=400
-                        )
-                    else:
-                        st.info("2D diagram generated but image data not available")
-            except Exception as e:
-                st.error(f"Error displaying diagram: {str(e)}")
-        else:
-            st.info("Click 'Generate 2D Diagram' to create interaction pattern")
-            if st.button("🎨 Generate 2D Diagram", type="secondary"):
-                st.rerun()
-    
-    with col3:
-        # Enhanced grading interface with colors and bigger buttons
+        # Compact grading interface
         st.markdown("""
         <style>
-        .grade-container {
+        .compact-grade {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            padding: 20px;
-            border-radius: 15px;
-            margin: 10px 0;
+            padding: 12px;
+            border-radius: 10px;
+            margin: 5px 0;
         }
-        .grade-title {
+        .compact-title {
             color: white;
-            font-size: 24px;
+            font-size: 18px;
             font-weight: bold;
-            margin-bottom: 20px;
+            margin-bottom: 12px;
             text-align: center;
         }
         </style>
         """, unsafe_allow_html=True)
         
-        st.markdown('<div class="grade-container">', unsafe_allow_html=True)
-        st.markdown('<div class="grade-title">⭐ Grade Molecule</div>', unsafe_allow_html=True)
+        st.markdown('<div class="compact-grade">', unsafe_allow_html=True)
+        st.markdown('<div class="compact-title">⭐ Grade</div>', unsafe_allow_html=True)
         
         grade_options = ['A', 'B', 'C', 'D', 'F']
         grade_colors = {
@@ -373,32 +276,24 @@ def main():
             if not grade_row.is_empty():
                 current_grade = grade_row['grade'][0]
         
-        # Enhanced grade selection with colors and descriptions
-        grade_descriptions = {
-            'A': 'Excellent - High quality pose',
-            'B': 'Good - Acceptable pose',
-            'C': 'Average - Moderate issues',
-            'D': 'Poor - Significant problems',
-            'F': 'Fail - Unacceptable pose'
-        }
-        
+        # Compact grade selection
         selected_grade = None
         for grade in grade_options:
             color = grade_colors[grade]
-            desc = grade_descriptions[grade]
             is_selected = current_grade == grade
             
             if st.button(
-                f"{color} {grade} - {desc}",
+                f"{color} {grade}",
                 key=f"grade_{grade}_{current_mol['id']}",
                 type="primary" if is_selected else "secondary",
-                use_container_width=True
+                use_container_width=True,
+                help=f"Grade {grade}"
             ):
                 selected_grade = grade
         
         if selected_grade:
             save_grade(current_mol['id'], selected_grade)
-            st.success(f"✅ Saved grade: {selected_grade}")
+            st.success(f"✅ {selected_grade}")
             
             if st.session_state.current_mol_idx < len(mol_list) - 1:
                 st.session_state.current_mol_idx += 1
@@ -408,19 +303,19 @@ def main():
         
         st.divider()
         
-        # Enhanced navigation
+        # Compact navigation
         col_prev, col_next = st.columns(2)
         with col_prev:
-            if st.button("⬅️ Previous", disabled=st.session_state.current_mol_idx == 0, use_container_width=True):
+            if st.button("⬅️", disabled=st.session_state.current_mol_idx == 0, use_container_width=True, help="Previous molecule"):
                 st.session_state.current_mol_idx -= 1
                 st.rerun()
         
         with col_next:
-            if st.button("➡️ Next", disabled=st.session_state.current_mol_idx >= len(mol_list) - 1, use_container_width=True):
+            if st.button("➡️", disabled=st.session_state.current_mol_idx >= len(mol_list) - 1, use_container_width=True, help="Next molecule"):
                 st.session_state.current_mol_idx += 1
                 st.rerun()
         
-        st.caption(f"📍 Molecule {st.session_state.current_mol_idx + 1} of {len(mol_list)}")
+        st.caption(f"{st.session_state.current_mol_idx + 1}/{len(mol_list)}")
     
     # Enhanced molecule table
     st.divider()
@@ -458,16 +353,16 @@ def main():
         if 'table_page' not in st.session_state:
             st.session_state.table_page = 0
         
-        # Page navigation
-        col1, col2, col3 = st.columns([1, 2, 1])
+        # Compact page navigation
+        col1, col2, col3 = st.columns([1, 1, 1])
         with col1:
-            if st.button("⬅️ Prev Page", disabled=st.session_state.table_page == 0):
+            if st.button("⬅️", disabled=st.session_state.table_page == 0, help="Previous page"):
                 st.session_state.table_page -= 1
                 st.rerun()
         with col2:
-            st.write(f"Page {st.session_state.table_page + 1} of {total_pages}")
+            st.caption(f"Page {st.session_state.table_page + 1}/{total_pages}")
         with col3:
-            if st.button("Next Page ➡️", disabled=st.session_state.table_page >= total_pages - 1):
+            if st.button("➡️", disabled=st.session_state.table_page >= total_pages - 1, help="Next page"):
                 st.session_state.table_page += 1
                 st.rerun()
         
