@@ -55,6 +55,42 @@ class DataHandler:
 
 class MoleculeReader:
     @staticmethod
+    def get_sdf_properties(filepath, max_molecules=5):
+        """
+        Parse SDF file to extract available properties from the first few molecules.
+        Returns a set of all property names found.
+        """
+        properties = set()
+        
+        try:
+            if filepath.endswith('.gz'):
+                with gzip.open(filepath, 'rt') as f:
+                    supplier = Chem.ForwardSDMolSupplier(f)
+            else:
+                supplier = Chem.ForwardSDMolSupplier(filepath)
+            
+            mol_count = 0
+            for mol in supplier:
+                if mol is None:
+                    continue
+                
+                # Get all properties from this molecule
+                all_props = mol.GetPropsAsDict()
+                properties.update(all_props.keys())
+                
+                mol_count += 1
+                if mol_count >= max_molecules:
+                    break
+                    
+        except Exception as e:
+            print(f"Error reading SDF file: {e}")
+            return []
+        
+        # Filter out the _Name property as it's handled separately
+        properties.discard('_Name')
+        return sorted(list(properties))
+    
+    @staticmethod
     def read_sdf(filepath, score_label='score'):
         molecules = []
         
