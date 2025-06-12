@@ -50,7 +50,7 @@ class MoleculeVisualizer:
                 str(ligand_path),
                 key=key,
                 height=600,
-                options = {"defaultPolymerReprType": "cartoon", "sizeFacotr": 0.35}
+                options = {"defaultPolymerReprType": "cartoon", "sizeFactor": 0.35}
             )
     
     def get_interaction_summary(self, interactions_json):
