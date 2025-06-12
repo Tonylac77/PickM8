@@ -12,3 +12,5 @@ __pycache__/
 data/sessions/
 binanapy.zip
 CLAUDE.md
+
+/test_outputs/
