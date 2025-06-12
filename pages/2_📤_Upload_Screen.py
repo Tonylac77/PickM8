@@ -1,9 +1,8 @@
 import streamlit as st
 from utils.io_handlers import DataHandler, MoleculeReader
-from core.interaction_wrapper import InteractionWrapper
+from core.interaction_functions import create_interaction_context, calculate_interactions_batch
 from core.fingerprints import FingerprintHandler
 import tempfile
-from pathlib import Path
 import json
 import traceback
 import logging
@@ -15,7 +14,105 @@ logger = logging.getLogger(__name__)
 
 st.set_page_config(page_title="Upload Screen - PickM8", page_icon="📤", layout="wide")
 
-def process_molecules(protein_path, molecules, interaction_wrapper, fp_handler):
+def process_molecules_parallel(protein_path, molecules, interaction_context, fp_handler):
+    """
+    Process molecules in parallel for fingerprint and interaction calculations
+    """
+    progress_bar = st.progress(0)
+    status = st.empty()
+    
+    status.text("Preparing molecules for parallel processing...")
+    
+    # Step 1: Prepare molecule objects
+    mol_objects = []
+    valid_molecules = []
+    
+    for i, mol in enumerate(molecules):
+        try:
+            mol_obj = Chem.MolFromMolBlock(mol['mol_block'])
+            if mol_obj is None:
+                logger.error(f"Failed to create molecule object for {mol['name']}")
+                continue
+            mol_objects.append(mol_obj)
+            valid_molecules.append(mol)
+        except Exception as e:
+            logger.error(f"Error preparing molecule {mol['name']}: {str(e)}")
+            continue
+    
+    if not valid_molecules:
+        st.error("No valid molecules could be processed")
+        return []
+    
+    logger.info(f"Successfully prepared {len(valid_molecules)} out of {len(molecules)} molecules")
+    progress_bar.progress(0.1)
+    
+    # Step 2: Calculate fingerprints and interactions simultaneously
+    status.text(f"Processing {len(valid_molecules)} molecules in parallel...")
+    
+    try:
+        fingerprints, ifp_results, interaction_results, all_errors = fp_handler.process_molecules_batch(
+            mol_objects, protein_path, interaction_context
+        )
+        logger.info(f"Parallel processing complete with {len(all_errors)} total errors")
+    except Exception as e:
+        st.error(f"Error during parallel processing: {str(e)}")
+        return []
+    
+    progress_bar.progress(0.8)
+    
+    # Step 3: Combine all results
+    status.text("Combining results...")
+    processed_molecules = []
+    
+    for i, mol in enumerate(valid_molecules):
+        try:
+            # Store fingerprint data
+            mol['morgan_fp'] = fingerprints[i].tolist()
+            
+            # Store interaction data
+            ifp = ifp_results[i]
+            interactions = interaction_results[i]
+            
+            if isinstance(ifp, dict):
+                mol['ifp'] = json.dumps({str(k): int(v) for k, v in ifp.items()})
+            else:
+                # Handle numpy array
+                mol['ifp'] = json.dumps({str(j): int(v) for j, v in enumerate(ifp) if v > 0})
+            
+            mol['interactions'] = json.dumps(interactions.get('interactions', []))
+            mol['num_interactions'] = interactions.get('total_interactions', 0)
+            
+            # Store additional SDF properties
+            if 'original_mol' in mol:
+                props = mol['original_mol'].GetPropsAsDict()
+                for prop_name, prop_value in props.items():
+                    if prop_name not in ['_Name', mol.get('score_label', 'score')]:
+                        mol[f'prop_{prop_name}'] = prop_value
+            
+            processed_molecules.append(mol)
+            
+        except Exception as e:
+            logger.error(f"Error combining results for molecule {mol['name']}: {str(e)}")
+            continue
+    
+    progress_bar.progress(1.0)
+    status.text("Processing complete!")
+    
+    # Report any errors
+    if all_errors:
+        st.warning(f"⚠️ {len(all_errors)} errors occurred during processing. Check logs for details.")
+        
+        with st.expander(f"Processing errors ({len(all_errors)})"):
+            for idx, error in all_errors.items():
+                st.code(f"Molecule {idx}: {error}")
+    
+    logger.info(f"Parallel processing complete. Successfully processed {len(processed_molecules)}/{len(molecules)} molecules")
+    return processed_molecules
+
+def process_molecules_sequential(protein_path, molecules, interaction_context, fp_handler):
+    """
+    Fallback sequential processing for molecules when parallel processing fails
+    """
     progress_bar = st.progress(0)
     status = st.empty()
     
@@ -31,66 +128,41 @@ def process_molecules(protein_path, molecules, interaction_wrapper, fp_handler):
             mol_obj = Chem.MolFromMolBlock(mol['mol_block'])
             if mol_obj is None:
                 raise ValueError(f"Failed to create molecule object from mol_block for {mol['name']}")
-            logger.debug(f"Successfully created molecule object for {mol['name']}")
             
             # Step 2: Calculate interactions
-            logger.debug(f"Calculating interactions for {mol['name']}")
-            ifp, interactions = interaction_wrapper.calculate_interactions(protein_path, mol_obj, mol['name'])
-            logger.debug(f"Interactions calculated for {mol['name']}: {interactions.get('total_interactions', 0) if interactions else 0} interactions")
+            from core.interaction_functions import calculate_with_context
+            ifp, interactions = calculate_with_context(interaction_context, protein_path, mol_obj, mol['name'])
             
             # Step 3: Store interaction data
             if isinstance(ifp, dict):
                 mol['ifp'] = json.dumps({str(k): int(v) for k, v in ifp.items()})
             else:
-                # Handle numpy array from ProLIF or binary array from PLIP
                 mol['ifp'] = json.dumps({str(i): int(v) for i, v in enumerate(ifp) if v > 0})
             
-            # Store interaction summary
             mol['interactions'] = json.dumps(interactions.get('interactions', []))
             mol['num_interactions'] = interactions.get('total_interactions', 0)
-            logger.debug(f"Interaction data stored for {mol['name']}")
             
             # Step 4: Calculate fingerprints
-            logger.debug(f"Computing fingerprint for {mol['name']}")
             mol_fp = fp_handler.compute_fingerprint(mol_obj)
             mol['morgan_fp'] = mol_fp.tolist()
-            logger.debug(f"Fingerprint computed for {mol['name']}")
             
             # Step 5: Store additional SDF properties
-            # Extract any additional properties from the original molecule
-            if 'original_mol' in mol:  # If we stored the original RDKit mol
+            if 'original_mol' in mol:
                 props = mol['original_mol'].GetPropsAsDict()
                 for prop_name, prop_value in props.items():
                     if prop_name not in ['_Name', mol.get('score_label', 'score')]:
                         mol[f'prop_{prop_name}'] = prop_value
             
             processed_molecules.append(mol)
-            logger.info(f"Successfully processed molecule {mol['name']}")
             
         except Exception as e:
-            error_msg = f"Failed to process {mol['name']}: {str(e)}"
-            full_traceback = traceback.format_exc()
-            
-            logger.error(f"Error processing molecule {mol['name']}")
-            logger.error(f"Error message: {str(e)}")
-            logger.error(f"Full traceback:\n{full_traceback}")
-            
-            # Display detailed error in Streamlit
-            st.error(f"❌ {error_msg}")
-            with st.expander(f"Error details for {mol['name']}"):
-                st.code(full_traceback)
-                st.write("**Molecule data:**")
-                st.json({
-                    'name': mol.get('name', 'Unknown'),
-                    'mol_block_length': len(mol.get('mol_block', '')) if mol.get('mol_block') else 0,
-                    'score': mol.get('score', 'N/A'),
-                    'keys': list(mol.keys()) if mol else []
-                })
+            logger.error(f"Error processing molecule {mol['name']}: {str(e)}")
+            st.error(f"❌ Failed to process {mol['name']}: {str(e)}")
         
         progress_bar.progress((i + 1) / len(molecules))
     
     status.text("Processing complete!")
-    logger.info(f"Processing complete. Successfully processed {len(processed_molecules)}/{len(molecules)} molecules")
+    logger.info(f"Sequential processing complete. Successfully processed {len(processed_molecules)}/{len(molecules)} molecules")
     return processed_molecules
 
 def main():
@@ -118,12 +190,55 @@ def main():
     with col2:
         st.subheader("2. Upload Ligands")
         ligand_file = st.file_uploader("Select SDF file", type=['sdf', 'gz'])
-        score_label = st.text_input("Score label in SDF", value="minimizedAffinity")
+        
+        # Initialize variables
+        ligand_path = None
+        score_label = "minimizedAffinity"  # Default value
+        available_properties = []
         
         if ligand_file:
             with tempfile.NamedTemporaryFile(delete=False, suffix='.sdf') as tmp:
                 tmp.write(ligand_file.getvalue())
                 ligand_path = tmp.name
+            
+            # Detect available properties in the SDF file
+            with st.spinner("Detecting SDF properties..."):
+                available_properties = MoleculeReader.get_sdf_properties(ligand_path)
+            
+            if available_properties:
+                st.success(f"📋 Found {len(available_properties)} properties in SDF file")
+                
+                # Create dropdown for score selection
+                default_index = 0
+                if "minimizedAffinity" in available_properties:
+                    default_index = available_properties.index("minimizedAffinity")
+                elif any("score" in prop.lower() for prop in available_properties):
+                    # Find first property containing "score"
+                    for i, prop in enumerate(available_properties):
+                        if "score" in prop.lower():
+                            default_index = i
+                            break
+                elif any("affinity" in prop.lower() for prop in available_properties):
+                    # Find first property containing "affinity"
+                    for i, prop in enumerate(available_properties):
+                        if "affinity" in prop.lower():
+                            default_index = i
+                            break
+                
+                score_label = st.selectbox(
+                    "Select docking score property:",
+                    options=available_properties,
+                    index=default_index,
+                    help="Choose which property to use as the docking score for active learning"
+                )
+                
+                # Show preview of available properties
+                with st.expander("📊 All Available Properties"):
+                    for prop in available_properties:
+                        st.text(f"• {prop}")
+            else:
+                st.warning("⚠️ Could not detect properties in SDF file. Using manual input.")
+                score_label = st.text_input("Score label in SDF", value="minimizedAffinity")
     
     # Fingerprint Configuration Section
     st.subheader("3. Fingerprint Configuration")
@@ -164,7 +279,7 @@ def main():
         else:
             st.caption("🔬 RDKit fingerprints: Topological path-based patterns, 2048 bits")
     
-    if st.button("Process Molecules", type="primary", disabled=not (protein_file and ligand_file)):
+    if st.button("Process Molecules", type="primary", disabled=not (protein_file and ligand_file and ligand_path)):
         try:
             logger.info("Starting molecule processing")
             
@@ -181,7 +296,7 @@ def main():
                     fp_type=molecular_fp_type,
                     interaction_fp_type=interaction_fp_type
                 )
-                interaction_wrapper = InteractionWrapper(ifp_type=interaction_fp_type)
+                interaction_context = create_interaction_context(ifp_type=interaction_fp_type)
                 logger.debug(f"Wrappers initialized successfully with {interaction_fp_type} interaction fingerprints and {molecular_fp_type} molecular fingerprints")
                 
                 st.subheader("Processing Interactions")
@@ -189,12 +304,23 @@ def main():
                 
                 st.info(f"🧬 Using **{interaction_fp_type}** interaction fingerprints and **{molecular_fp_type}** molecular fingerprints")
                 
-                processed_molecules = process_molecules(
-                    st.session_state.protein_path, 
-                    molecules, 
-                    interaction_wrapper, 
-                    fp_handler
-                )
+                # Try parallel processing first
+                try:
+                    processed_molecules = process_molecules_parallel(
+                        st.session_state.protein_path, 
+                        molecules, 
+                        interaction_context, 
+                        fp_handler
+                    )
+                except Exception as e:
+                    logger.error(f"Parallel processing failed: {str(e)}")
+                    st.warning("⚠️ Parallel processing failed, falling back to sequential processing...")
+                    processed_molecules = process_molecules_sequential(
+                        st.session_state.protein_path, 
+                        molecules, 
+                        interaction_context, 
+                        fp_handler
+                    )
                 
                 logger.info(f"Processed {len(processed_molecules)} molecules successfully")
                 
