@@ -20,6 +20,13 @@ def init_page_state():
     if 'posecheck_data' not in st.session_state:
         st.session_state.posecheck_data = {}
 
+def format_progress_percentage(current, total):
+    """Format progress as a percentage string"""
+    if total == 0:
+        return "0%"
+    percentage = (current / total) * 100
+    return f"{percentage:.1f}%"
+
 def save_grade(mol_id, grade):
     data_handler = DataHandler(st.session_state.session_id)
     
@@ -73,10 +80,14 @@ def create_molecule_table(molecules_df, grades_df, posecheck_data):
     
     return mol_data
 
-def calculate_posecheck_metrics(session_state, molecules_df):
+def calculate_posecheck_metrics(session_state, molecules_df, progress_bar=None, status_text=None):
     """Calculate PoseCheck metrics for molecules if not already calculated"""
+    import time
+    
     if 'posecheck_analyzer' not in st.session_state:
         if session_state and 'protein_content' in session_state:
+            if status_text:
+                status_text.text("🔧 Initializing PoseCheck analyzer...")
             st.session_state.posecheck_analyzer = PoseCheckAnalyzer()
             st.session_state.posecheck_analyzer.load_protein_from_content(session_state['protein_content'])
     
@@ -92,21 +103,72 @@ def calculate_posecheck_metrics(session_state, molecules_df):
             molecules_to_calculate.append(mol['mol_block'])
             mol_ids_to_calculate.append(mol_id)
     
+    total_molecules = len(mol_ids_to_calculate)
+    
     # If we have molecules to calculate and a valid analyzer
     if molecules_to_calculate and 'posecheck_analyzer' in st.session_state:
         try:
-            # Use parallel processing for batch calculation
-            clashes_list, strain_list = st.session_state.posecheck_analyzer.analyze_multiple_molecules_smart(
-                molecules_to_calculate
-            )
+            start_time = time.time()
             
-            # Store results
-            for i, mol_id in enumerate(mol_ids_to_calculate):
-                posecheck_data[mol_id] = {
-                    'clashes': clashes_list[i],
-                    'strain_energy': strain_list[i]
-                }
+            if status_text:
+                status_text.text(f"🧪 Starting analysis of {total_molecules} molecules...")
+            
+            # For better progress tracking, we'll process in chunks
+            chunk_size = max(1, min(10, total_molecules // 5))  # Process in chunks for progress updates
+            
+            for i in range(0, total_molecules, chunk_size):
+                chunk_start_time = time.time()
+                
+                chunk_end = min(i + chunk_size, total_molecules)
+                chunk_molecules = molecules_to_calculate[i:chunk_end]
+                chunk_ids = mol_ids_to_calculate[i:chunk_end]
+                
+                # Estimate remaining time
+                if i > 0:
+                    elapsed_time = time.time() - start_time
+                    rate = i / elapsed_time  # molecules per second
+                    remaining_molecules = total_molecules - chunk_end
+                    estimated_remaining = remaining_molecules / rate if rate > 0 else 0
+                    
+                    if status_text:
+                        if estimated_remaining > 60:
+                            time_str = f"{estimated_remaining/60:.1f} min"
+                        else:
+                            time_str = f"{estimated_remaining:.0f} sec"
+                        status_text.text(f"🧪 Processing molecules {i+1}-{chunk_end} of {total_molecules} (≈{time_str} remaining)")
+                else:
+                    if status_text:
+                        status_text.text(f"🧪 Processing molecules {i+1}-{chunk_end} of {total_molecules}...")
+                
+                # Use parallel processing for batch calculation
+                clashes_list, strain_list = st.session_state.posecheck_analyzer.analyze_multiple_molecules_smart(
+                    chunk_molecules
+                )
+                
+                # Store results for this chunk
+                for j, mol_id in enumerate(chunk_ids):
+                    posecheck_data[mol_id] = {
+                        'clashes': clashes_list[j],
+                        'strain_energy': strain_list[j]
+                    }
+                
+                # Update progress bar
+                if progress_bar:
+                    progress = (chunk_end) / total_molecules
+                    progress_percentage = format_progress_percentage(chunk_end, total_molecules)
+                    progress_bar.progress(progress, text=f"Progress: {progress_percentage} ({chunk_end}/{total_molecules} molecules)")
+            
+            total_time = time.time() - start_time
+            if status_text:
+                if total_time > 60:
+                    time_str = f"{total_time/60:.1f} minutes"
+                else:
+                    time_str = f"{total_time:.1f} seconds"
+                status_text.text(f"✅ Completed analysis of {total_molecules} molecules in {time_str}!")
+            
         except Exception as e:
+            if status_text:
+                status_text.text(f"⚠️ Error in PoseCheck analysis: {str(e)}")
             st.warning(f"Could not calculate PoseCheck metrics: {str(e)}")
             # Fallback to default values
             for mol_id in mol_ids_to_calculate:
@@ -114,13 +176,30 @@ def calculate_posecheck_metrics(session_state, molecules_df):
                     'clashes': 0,
                     'strain_energy': 0.0
                 }
+                
+            # Update progress to complete even on error
+            if progress_bar:
+                progress_bar.progress(1.0, text="Error occurred - falling back to default values")
     else:
         # No analyzer available, use default values
+        if status_text:
+            if not molecules_to_calculate:
+                status_text.text("✅ All molecules already analyzed!")
+            else:
+                status_text.text("⚠️ PoseCheck analyzer not available, using default values...")
+        
         for mol_id in mol_ids_to_calculate:
             posecheck_data[mol_id] = {
                 'clashes': 0,
                 'strain_energy': 0.0
             }
+        
+        # Update progress to complete
+        if progress_bar:
+            if not molecules_to_calculate:
+                progress_bar.progress(1.0, text="All molecules already analyzed!")
+            else:
+                progress_bar.progress(1.0, text="Using default values (PoseCheck not available)")
     
     st.session_state.posecheck_data = posecheck_data
     return posecheck_data
@@ -141,12 +220,69 @@ def main():
         st.error("No molecules loaded. Please upload a screen first.")
         return
     
-    # Calculate PoseCheck metrics for all molecules upfront
-    with st.spinner("Calculating pose quality metrics for all molecules..."):
+    # Calculate PoseCheck metrics for all molecules upfront with progress bar
+    molecules_needing_calculation = []
+    existing_posecheck_data = st.session_state.get('posecheck_data', {})
+    
+    for mol in molecules_df.to_dicts():
+        mol_id = mol['id']
+        if mol_id not in existing_posecheck_data:
+            molecules_needing_calculation.append(mol_id)
+    
+    if molecules_needing_calculation:
+        # Create an expandable section for the progress tracking
+        with st.expander(f"🧪 Calculating Pose Quality Metrics ({len(molecules_needing_calculation)} molecules)", expanded=True):
+            st.markdown("""
+            **PoseCheck Analysis:** Evaluating molecular poses for clashes and strain energy.
+            This helps identify problematic poses that might need attention.
+            """)
+            
+            # Create progress metrics in columns
+            progress_cols = st.columns(3)
+            with progress_cols[0]:
+                total_metric = st.metric("Total Molecules", len(molecules_df))
+            with progress_cols[1]:
+                remaining_metric = st.metric("To Analyze", len(molecules_needing_calculation))
+            with progress_cols[2]:
+                completed_metric = st.metric("Already Done", len(molecules_df) - len(molecules_needing_calculation))
+            
+            st.divider()
+            
+            # Create progress bar and status text containers
+            progress_container = st.container()
+            status_container = st.container()
+            
+            with progress_container:
+                progress_bar = st.progress(0)
+                
+            with status_container:
+                status_text = st.empty()
+                
+            # Calculate metrics with progress tracking
+            posecheck_data = calculate_posecheck_metrics(
+                session_state, 
+                molecules_df, 
+                progress_bar=progress_bar, 
+                status_text=status_text
+            )
+            
+            # Clean up progress indicators after completion
+            import time
+            time.sleep(1.5)  # Brief pause to show completion
+            progress_container.empty()
+            
+            # Show final summary
+            num_calculated = len(molecules_needing_calculation)
+            if num_calculated > 0:
+                st.success(f"✅ Successfully calculated pose quality metrics for {num_calculated} molecules!")
+            
+            # Clear status after showing final message
+            time.sleep(1)
+            status_container.empty()
+            
+    else:
+        # All molecules already have metrics calculated
         posecheck_data = calculate_posecheck_metrics(session_state, molecules_df)
-        num_calculated = len([mol_id for mol_id in posecheck_data.keys() if mol_id])
-        if num_calculated > 0:
-            st.success(f"✅ Calculated metrics for {num_calculated} molecules")
     
     # Initialize any missing data
     for mol in molecules_df.to_dicts():
@@ -209,21 +345,50 @@ def main():
     mol_list = sorted_df.to_dicts()
     current_mol = mol_list[st.session_state.current_mol_idx]
     
-    # Two-column layout: main content and grading interface
-    col1, col2 = st.columns([4, 1])
+    # Three-column layout: 2D view, 3D visualization, and grading interface
+    col1, col2, col3 = st.columns([1, 3, 1])
     
     with col1:
-        st.subheader(f"🧬 Molecule: {current_mol['name']}")
+        # 2D Ligand Structure
+        st.subheader("2D Structure")
+        try:
+            from rdkit import Chem
+            from rdkit.Chem import Draw
+            import io
+            from PIL import Image
+            
+            # Convert mol_block to RDKit molecule
+            mol = Chem.MolFromMolBlock(current_mol['mol_block'])
+            if mol is not None:
+                # Generate 2D coordinates if not present
+                from rdkit.Chem import rdDepictor
+                rdDepictor.Compute2DCoords(mol)
+                
+                # Create 2D image
+                img = Draw.MolToImage(mol, size=(300, 300))
+                st.image(img, caption=f"{current_mol['name']}", use_container_width=True)
+            else:
+                st.error("Could not parse molecule structure")
+        except Exception as e:
+            st.error(f"Error generating 2D structure: {str(e)}")
         
-        # Compact molecule info
+        # Compact molecule data under 2D diagram
+        st.markdown("**📊 Data**")
         pc_data = posecheck_data.get(current_mol['id'], {'clashes': 0, 'strain_energy': 0.0})
-        info_cols = st.columns(2)
-        with info_cols[0]:
-            st.metric("📊 Score", f"{current_mol['score']:.3f}")
-            st.metric("⚡ Strain Energy", f"{pc_data['strain_energy']:.2f}")
-        with info_cols[1]:
-            st.metric("⚠️ Clashes", pc_data['clashes'])
-            st.metric("🔬 Interactions", current_mol.get('num_interactions', 0))
+        
+        # Much smaller data display
+        st.markdown(f"""
+        <div style="font-size: 12px; line-height: 1.2;">
+        <strong>Score:</strong> {current_mol['score']:.3f}<br>
+        <strong>Clashes:</strong> {pc_data['clashes']}<br>
+        <strong>Strain:</strong> {pc_data['strain_energy']:.2f}<br>
+        <strong>Interactions:</strong> {current_mol.get('num_interactions', 0)}
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        # Main 3D visualization in center
+        st.subheader(f"🧬 {current_mol['name']}")
         
         if session_state and 'protein_content' in session_state:
             visualizer.show_complex(
@@ -237,28 +402,9 @@ def main():
         with st.expander("🔬 Interaction Summary", expanded=True):
             visualizer.show_interaction_legend(interaction_summary)
     
-    with col2:
-        # Compact grading interface
-        st.markdown("""
-        <style>
-        .compact-grade {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            padding: 12px;
-            border-radius: 10px;
-            margin: 5px 0;
-        }
-        .compact-title {
-            color: white;
-            font-size: 18px;
-            font-weight: bold;
-            margin-bottom: 12px;
-            text-align: center;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-        
-        st.markdown('<div class="compact-grade">', unsafe_allow_html=True)
-        st.markdown('<div class="compact-title">⭐ Grade</div>', unsafe_allow_html=True)
+    with col3:
+        # Grading interface (without gradient background)
+        st.subheader("⭐ Grade")
         
         grade_options = ['A', 'B', 'C', 'D', 'F']
         grade_colors = {
@@ -276,7 +422,7 @@ def main():
             if not grade_row.is_empty():
                 current_grade = grade_row['grade'][0]
         
-        # Compact grade selection
+        # Grade selection buttons
         selected_grade = None
         for grade in grade_options:
             color = grade_colors[grade]
@@ -299,11 +445,9 @@ def main():
                 st.session_state.current_mol_idx += 1
                 st.rerun()
         
-        st.markdown('</div>', unsafe_allow_html=True)
-        
         st.divider()
         
-        # Compact navigation
+        # Navigation
         col_prev, col_next = st.columns(2)
         with col_prev:
             if st.button("⬅️", disabled=st.session_state.current_mol_idx == 0, use_container_width=True, help="Previous molecule"):
