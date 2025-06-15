@@ -88,3 +88,45 @@ def main():
                 fig = px.bar(grade_counts, x='grade', y='count',
                            title='Grade Distribution')
                 st.plotly_chart(fig, use_container_width=True)
+            
+            with col2:
+                fig = px.pie(grade_counts, values='count', names='grade',
+                           title='Grade Proportions')
+                st.plotly_chart(fig, use_container_width=True)
+    
+    with tab3:
+        if predictions_df is None or predictions_df.is_empty():
+            st.info("No predictions available. Train a model first.")
+        else:
+            st.subheader("Model Predictions")
+            st.dataframe(predictions_df, use_container_width=True)
+    
+    with tab4:
+        st.subheader("Export Results")
+        
+        if st.button("📁 Download Results Archive"):
+            archive_path = create_results_archive(data_handler, session_state)
+            
+            with open(archive_path, 'rb') as f:
+                st.download_button(
+                    label="Download ZIP",
+                    data=f.read(),
+                    file_name=archive_path.name,
+                    mime="application/zip"
+                )
+    
+    # Navigation
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### Navigation")
+    
+    if st.sidebar.button("🎯 Active Learning"):
+        st.switch_page("pages/3_🎯_Active_Learning.py")
+    
+    if st.sidebar.button("⚙️ Settings"):
+        st.switch_page("pages/5_⚙️_Settings.py")
+    
+    if st.sidebar.button("🏠 Main Entry"):
+        st.switch_page("main_entry.py")
+
+if __name__ == "__main__":
+    main()

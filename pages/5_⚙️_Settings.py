@@ -205,6 +205,19 @@ def main():
                 st.success("Custom model loaded! You can now use it for training.")
                 st.session_state.model_type = 'custom'
                 st.session_state.custom_model_path = str(model_path)
+    
+    # Navigation
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### Navigation")
+    
+    if st.sidebar.button("🎯 Active Learning"):
+        st.switch_page("pages/3_🎯_Active_Learning.py")
+    
+    if st.sidebar.button("📊 Results"):
+        st.switch_page("pages/4_📊_Results.py")
+    
+    if st.sidebar.button("🏠 Main Entry"):
+        st.switch_page("main_entry.py")
 
 if __name__ == "__main__":
     main()

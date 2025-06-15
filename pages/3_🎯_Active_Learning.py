@@ -332,6 +332,11 @@ def main():
         
         if st.button("🤖 Train Model", type="primary", disabled=grades_df is None or len(grades_df) < 10):
             st.switch_page("pages/5_⚙️_Settings.py")
+        
+        st.divider()
+        
+        if st.button("🏠 Main Entry", type="secondary"):
+            st.switch_page("main_entry.py")
     
     # Filter and sort molecules
     filtered_df = filter_molecules_by_grade_status(molecules_df, grades_df, mode)
