@@ -10,7 +10,7 @@ storage:
 fingerprinting:
   default_type: "PLIP"  # Options: PLIP, PROLIF
   molecule_fp_type: "morgan"  # RDKit fingerprint type
-  molecule_fp_size: 2048
+  molecule_fp_size: 4096
   molecule_fp_radius: 2
   
 models:

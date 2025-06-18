@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch, MagicMock
 from rdkit import Chem
 import pandas as pd
 
-from core.prolif_interactions import (
+from core.fingerprints.interactions.prolif import (
     is_prolif_available,
     create_ligand_sdf,
     extract_prolif_interactions,
@@ -193,11 +193,11 @@ class TestProlifInteractions:
         if not protein_file_path.exists():
             pytest.skip("Test protein file not available")
         
-        with patch('core.prolif_interactions.PROLIF_AVAILABLE', prolif_available):
+        with patch('core.fingerprints.interactions.prolif.PROLIF_AVAILABLE', prolif_available):
             if prolif_available:
                 # Mock ProLIF components
-                with patch('core.prolif_interactions.mda') as mock_mda, \
-                     patch('core.prolif_interactions.plf') as mock_plf:
+                with patch('core.fingerprints.interactions.prolif.mda') as mock_mda, \
+                     patch('core.fingerprints.interactions.prolif.plf') as mock_plf:
                     
                     # Mock MDAnalysis Universe
                     mock_protein_u = Mock()
@@ -241,9 +241,9 @@ class TestProlifInteractions:
         if not protein_file_path.exists():
             pytest.skip("Test protein file not available")
         
-        with patch('core.prolif_interactions.PROLIF_AVAILABLE', True), \
-             patch('core.prolif_interactions.mda') as mock_mda, \
-             patch('core.prolif_interactions.plf') as mock_plf:
+        with patch('core.fingerprints.interactions.prolif.PROLIF_AVAILABLE', True), \
+             patch('core.fingerprints.interactions.prolif.mda') as mock_mda, \
+             patch('core.fingerprints.interactions.prolif.plf') as mock_plf:
             
             # Mock MDAnalysis Universe
             mock_protein_u = Mock()
@@ -299,8 +299,8 @@ class TestProlifInteractions:
         if not protein_file_path.exists():
             pytest.skip("Test protein file not available")
         
-        with patch('core.prolif_interactions.PROLIF_AVAILABLE', True), \
-             patch('core.prolif_interactions.mda') as mock_mda:
+        with patch('core.fingerprints.interactions.prolif.PROLIF_AVAILABLE', True), \
+             patch('core.fingerprints.interactions.prolif.mda') as mock_mda:
             
             # Make MDAnalysis raise an exception
             mock_mda.Universe.side_effect = Exception("Test error")
@@ -314,7 +314,7 @@ class TestProlifInteractions:
                 created_files.append(path)
                 return path
             
-            with patch('core.prolif_interactions.create_ligand_sdf', side_effect=track_create_sdf):
+            with patch('core.fingerprints.interactions.prolif.create_ligand_sdf', side_effect=track_create_sdf):
                 with pytest.raises(Exception, match="Test error"):
                     calculate_prolif_interactions(str(protein_file_path), sample_molecule)
                 
@@ -330,9 +330,9 @@ class TestProlifInteractions:
         if not protein_file_path.exists():
             pytest.skip("Test protein file not available")
         
-        with patch('core.prolif_interactions.PROLIF_AVAILABLE', True), \
-             patch('core.prolif_interactions.mda') as mock_mda, \
-             patch('core.prolif_interactions.plf') as mock_plf:
+        with patch('core.fingerprints.interactions.prolif.PROLIF_AVAILABLE', True), \
+             patch('core.fingerprints.interactions.prolif.mda') as mock_mda, \
+             patch('core.fingerprints.interactions.prolif.plf') as mock_plf:
             
             # Setup mocks
             mock_protein_u = Mock()
@@ -416,9 +416,9 @@ class TestProlifInteractionsWithRealData:
             pytest.skip("Could not read molecule from test SDF")
         
         # Test with mocked ProLIF to avoid dependency
-        with patch('core.prolif_interactions.PROLIF_AVAILABLE', True), \
-             patch('core.prolif_interactions.mda') as mock_mda, \
-             patch('core.prolif_interactions.plf') as mock_plf:
+        with patch('core.fingerprints.interactions.prolif.PROLIF_AVAILABLE', True), \
+             patch('core.fingerprints.interactions.prolif.mda') as mock_mda, \
+             patch('core.fingerprints.interactions.prolif.plf') as mock_plf:
             
             # Setup comprehensive mock
             mock_protein_u = Mock()

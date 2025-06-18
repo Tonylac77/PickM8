@@ -88,52 +88,6 @@ def create_complex_with_biopython(protein_path: str, ligand_mol: 'Chem.Mol', lig
         return None
 
 
-def create_complex_manually(protein_path: str, ligand_mol: 'Chem.Mol', ligand_name: str) -> str:
-    """
-    Fallback method to create complex without BioPython dependencies.
-    
-    Args:
-        protein_path: Path to protein PDB file
-        ligand_mol: RDKit molecule object
-        ligand_name: Name for the ligand
-        
-    Returns:
-        Path to the created complex PDB file
-    """
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.pdb', delete=False) as tmp_pdb:
-        with open(protein_path, 'r') as f:
-            protein_lines = f.readlines()
-        
-        for line in protein_lines:
-            if not line.startswith('END'):
-                tmp_pdb.write(line)
-        
-        if not any(line.startswith('TER') for line in protein_lines[-5:]):
-            tmp_pdb.write('TER\n')
-        
-        ligand_pdb = Chem.MolToPDBBlock(ligand_mol)
-        ligand_lines = ligand_pdb.strip().split('\n')
-        
-        for line in ligand_lines:
-            if line.startswith(('ATOM', 'HETATM')):
-                if line.startswith('ATOM'):
-                    line = 'HETATM' + line[6:]
-                
-                resname = line[17:20].strip()
-                if not resname or resname == 'UNL':
-                    line = line[:17] + 'LIG' + line[20:]
-                
-                if line[21] == ' ':
-                    line = line[:21] + 'Z' + line[22:]
-                
-                tmp_pdb.write(line + '\n')
-            elif line.startswith('CONECT'):
-                tmp_pdb.write(line + '\n')
-        
-        tmp_pdb.write('END\n')
-        return tmp_pdb.name
-
-
 def extract_plip_interactions(interaction_set) -> list:
     """
     Extract interaction data from PLIP interaction set.
@@ -264,10 +218,10 @@ def calculate_plip_interactions(protein_path: str, ligand_mol: 'Chem.Mol', ligan
     if not PLIP_AVAILABLE:
         raise ImportError("PLIP is not available. Install with: pip install plip")
     
-    # Create complex PDB
+    # Create complex PDB using BioPython
     complex_path = create_complex_with_biopython(protein_path, ligand_mol, ligand_name)
     if complex_path is None:
-        complex_path = create_complex_manually(protein_path, ligand_mol, ligand_name)
+        raise RuntimeError("Failed to create protein-ligand complex. BioPython complex creation failed.")
     
     try:
         # Initialize PLIP

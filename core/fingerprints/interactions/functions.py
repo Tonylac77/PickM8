@@ -11,12 +11,12 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Tuple, List, Dict, Optional, Union
 
-from .plip_interactions import (
+from .plip import (
     calculate_plip_interactions,
     get_plip_interaction_types,
     is_plip_available
 )
-from .prolif_interactions import (
+from .prolif import (
     calculate_prolif_interactions,
     get_prolif_interaction_types,
     is_prolif_available
@@ -76,6 +76,8 @@ def validate_ifp_type(ifp_type: str) -> None:
         ValueError: If invalid IFP type
         ImportError: If required library is not available
     """
+    # Normalize to uppercase for case-insensitive matching
+    ifp_type = ifp_type.upper()
     valid_types = ['PLIP', 'PROLIF']
     if ifp_type not in valid_types:
         raise ValueError(f"Invalid IFP type: {ifp_type}. Must be one of: {valid_types}")
@@ -113,6 +115,8 @@ def calculate_interactions(
     if ifp_type is None:
         ifp_type = determine_ifp_type()
     
+    # Normalize to uppercase for case-insensitive matching
+    ifp_type = ifp_type.upper()
     validate_ifp_type(ifp_type)
     
     if ifp_type == "PLIP":
@@ -121,6 +125,20 @@ def calculate_interactions(
         return calculate_prolif_interactions(protein_path, ligand_mol, ligand_name)
     else:
         raise ValueError(f"Unsupported IFP type: {ifp_type}")
+
+
+def get_supported_interaction_types(ifp_type: Optional[str] = None) -> List[str]:
+    """
+    Get list of interaction types supported by the specified method.
+    Alias for get_available_interaction_types for consistency.
+    
+    Args:
+        ifp_type: IFP type to query
+        
+    Returns:
+        List of supported interaction type names
+    """
+    return get_available_interaction_types(ifp_type)
 
 
 def get_available_interaction_types(ifp_type: Optional[str] = None) -> List[str]:
@@ -135,6 +153,9 @@ def get_available_interaction_types(ifp_type: Optional[str] = None) -> List[str]
     """
     if ifp_type is None:
         ifp_type = determine_ifp_type()
+    
+    # Normalize to uppercase for case-insensitive matching
+    ifp_type = ifp_type.upper()
     
     if ifp_type == "PLIP":
         return get_plip_interaction_types()
@@ -167,6 +188,8 @@ def calculate_interactions_batch(
     if ifp_type is None:
         ifp_type = determine_ifp_type()
     
+    # Normalize to uppercase for case-insensitive matching
+    ifp_type = ifp_type.upper()
     validate_ifp_type(ifp_type)
     
     if max_workers is None:
@@ -243,6 +266,8 @@ def create_interaction_context(
     if ifp_type is None:
         ifp_type = determine_ifp_type()
     
+    # Normalize to uppercase for case-insensitive matching
+    ifp_type = ifp_type.upper()
     validate_ifp_type(ifp_type)
     
     config = load_interaction_config(config_path)
@@ -265,6 +290,8 @@ def set_interaction_type(context: dict, ifp_type: str) -> dict:
     Returns:
         Updated context dictionary
     """
+    # Normalize to uppercase for case-insensitive matching
+    ifp_type = ifp_type.upper()
     validate_ifp_type(ifp_type)
     
     context = context.copy()
