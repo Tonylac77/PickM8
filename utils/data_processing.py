@@ -32,6 +32,7 @@ def create_empty_molecules_dataframe() -> pd.DataFrame:
         # Computed fingerprints
         'morgan_fp': 'object',  # List of integers
         'rdkit_fp': 'object',   # List of integers
+        'mapchiral_fp': 'object',  # List of integers
         'interaction_fp': 'object',  # JSON string
         'interactions': 'object',    # JSON string
         'num_interactions': 'int64',
@@ -83,6 +84,7 @@ def load_sdf_file(sdf_path: str) -> pd.DataFrame:
         # Initialize computed columns
         df['morgan_fp'] = None
         df['rdkit_fp'] = None
+        df['mapchiral_fp'] = None
         df['interaction_fp'] = None
         df['interactions'] = None
         df['num_interactions'] = 0

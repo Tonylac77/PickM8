@@ -264,7 +264,7 @@ def upload_new_session():
     # Configuration Section
     st.markdown("#### 3. Processing Configuration")
     
-    col3, col4 = st.columns(2)
+    col3, col4, col5 = st.columns(3)
     
     with col3:
         interaction_type = st.selectbox(
@@ -275,16 +275,28 @@ def upload_new_session():
         )
     
     with col4:
+        molecular_fp_types = st.multiselect(
+            "Molecular Fingerprints",
+            options=["morgan", "rdkit", "mapchiral"],
+            default=["morgan", "rdkit", "mapchiral"],
+            help="Select molecular fingerprint types to compute:\n• Morgan: Circular fingerprints\n• RDKit: Path-based fingerprints\n• MapChiral: Chiral-aware fingerprints"
+        )
+    
+    with col5:
         compute_pose_quality = st.checkbox(
             "Compute Pose Quality Metrics",
             value=True,
             help="Calculate clash detection and strain energy (requires PoseCheck)"
         )
     
+    # Validation for fingerprint selection
+    if not molecular_fp_types:
+        st.warning("⚠️ Please select at least one molecular fingerprint type.")
+    
     # Process button
     if st.button("🚀 Create Session & Process", 
                 type="primary", 
-                disabled=not (protein_file and ligand_file and ligand_path)):
+                disabled=not (protein_file and ligand_file and ligand_path and molecular_fp_types)):
         
         try:
             # Create new session ID
@@ -325,6 +337,11 @@ def upload_new_session():
             if len(molecules_df) > 0:
                 # Create processing configurations
                 fp_config = create_default_fingerprint_config()
+                
+                # Update fingerprint config based on user selection
+                fp_config['compute_morgan'] = 'morgan' in molecular_fp_types
+                fp_config['compute_rdkit'] = 'rdkit' in molecular_fp_types
+                fp_config['compute_mapchiral'] = 'mapchiral' in molecular_fp_types
                 
                 interaction_config = create_default_interaction_config()
                 interaction_config['interaction_type'] = interaction_type
