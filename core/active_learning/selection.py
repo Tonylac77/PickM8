@@ -48,14 +48,14 @@ def select_by_score(df: pd.DataFrame, n_molecules: int) -> List[int]:
 
 
 def select_molecules_for_labeling(df: pd.DataFrame, n_molecules: int = 10,
-                                strategy: str = "uncertainty", **kwargs) -> List[int]:
+                                strategy: str = "random", **kwargs) -> List[int]:
     """
     Select molecules for manual labeling using active learning strategy.
     
     Args:
         df: Molecules DataFrame
         n_molecules: Number of molecules to select
-        strategy: Selection strategy ('uncertainty', 'predicted_grade', 'diverse', 'random')
+        strategy: Selection strategy ('random', 'highest_score', 'uncertainty', 'predicted_grade', 'diverse')
         **kwargs: Strategy-specific parameters
         
     Returns:
@@ -69,7 +69,13 @@ def select_molecules_for_labeling(df: pd.DataFrame, n_molecules: int = 10,
     
     n_molecules = min(n_molecules, len(ungraded))
     
-    if strategy == "uncertainty":
+    if strategy == "random":
+        return ungraded.sample(n=n_molecules, random_state=42)['id'].tolist()
+    
+    elif strategy == "highest_score":
+        return select_by_score(ungraded, n_molecules)
+    
+    elif strategy == "uncertainty":
         # Select molecules with highest prediction uncertainty
         if 'prediction_uncertainty' in ungraded.columns:
             uncertainty_available = ungraded['prediction_uncertainty'].notna()
@@ -78,9 +84,8 @@ def select_molecules_for_labeling(df: pd.DataFrame, n_molecules: int = 10,
                 candidates = candidates.nlargest(n_molecules, 'prediction_uncertainty')
                 return candidates['id'].tolist()
         
-        # Fallback to score-based selection (scores are always valid numeric)
-        # Use score direction from session metadata if available
-        return select_by_score(ungraded, n_molecules)
+        # Fallback to random selection for pre-training
+        return ungraded.sample(n=n_molecules, random_state=42)['id'].tolist()
     
     elif strategy == "predicted_grade":
         # Select molecules with highest predicted grades (A > B > C > D > F)
@@ -105,8 +110,8 @@ def select_molecules_for_labeling(df: pd.DataFrame, n_molecules: int = 10,
                 candidates = candidates.nlargest(n_molecules, 'prediction_uncertainty')
                 return candidates['id'].tolist()
         
-        # Final fallback to score-based selection
-        return select_by_score(ungraded, n_molecules)
+        # Final fallback to random selection
+        return ungraded.sample(n=n_molecules, random_state=42)['id'].tolist()
     
     elif strategy == "diverse":
         # Select diverse molecules based on features
@@ -120,9 +125,6 @@ def select_molecules_for_labeling(df: pd.DataFrame, n_molecules: int = 10,
             logger.warning(f"Error in diverse selection: {e}")
         
         # Fallback to random selection
-        return ungraded.sample(n=n_molecules, random_state=42)['id'].tolist()
-    
-    elif strategy == "random":
         return ungraded.sample(n=n_molecules, random_state=42)['id'].tolist()
     
     else:

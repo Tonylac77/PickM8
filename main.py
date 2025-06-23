@@ -39,7 +39,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 st.set_page_config(
-    page_title="PickM8 - Active Learning for Molecular Screening",
+    page_title="Setup - PickM8",
     page_icon="🧬",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -476,7 +476,7 @@ def main():
     if 'protein_content' not in st.session_state:
         st.session_state.protein_content = None
     
-    st.title("🧬 PickM8 - Active Learning for Molecular Screening")
+    st.title("🧬 Setup - PickM8")
     st.markdown("### Machine Learning-Guided Visual Inspection of Molecular Docking Results")
     
     # Main navigation tabs

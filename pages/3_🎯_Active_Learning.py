@@ -40,7 +40,7 @@ def init_page_state():
     if 'current_mol_idx' not in st.session_state:
         st.session_state.current_mol_idx = 0
     if 'suggestion_strategy' not in st.session_state:
-        st.session_state.suggestion_strategy = 'uncertainty'
+        st.session_state.suggestion_strategy = 'random'
     if 'has_predictions' not in st.session_state:
         st.session_state.has_predictions = False
 
@@ -355,34 +355,32 @@ def main():
         if st.session_state.has_predictions:
             strategy_options = ["uncertainty", "predicted_grade"]
             strategy_labels = ["Highest Uncertainty", "Highest Predicted Grade"]
-            
-            # Get current index safely
-            try:
-                current_strategy = st.session_state.suggestion_strategy
-                current_idx = strategy_options.index(current_strategy) if current_strategy in strategy_options else 0
-            except:
-                current_idx = 0
-            
-            strategy_display = st.selectbox(
-                "Suggestion Strategy",
-                strategy_labels,
-                index=current_idx,
-                help="Uncertainty: Show molecules the model is least confident about\nPredicted Grade: Show molecules with highest predicted grades",
-                key="strategy_selector"
-            )
-            
-            # Map display back to internal value and update session state
-            new_strategy = strategy_options[strategy_labels.index(strategy_display)]
-            
-            # Check if strategy changed and force rerun if needed
-            if st.session_state.suggestion_strategy != new_strategy:
-                st.session_state.suggestion_strategy = new_strategy
-                st.session_state.current_mol_idx = 0  # Reset to first molecule with new strategy
-                st.rerun()
-            
         else:
-            st.info("**Strategy:** Score-based  \n*Train model to enable ML suggestions*")
-            st.session_state.suggestion_strategy = "score"
+            strategy_options = ["random", "highest_score"]
+            strategy_labels = ["Random", "Highest Score"]
+        
+        # Get current index safely
+        try:
+            current_strategy = st.session_state.suggestion_strategy
+            current_idx = strategy_options.index(current_strategy) if current_strategy in strategy_options else 0
+        except:
+            current_idx = 0
+        
+        strategy_display = st.selectbox(
+            "Selection Strategy",
+            strategy_labels,
+            index=current_idx,
+            key="strategy_selector"
+        )
+        
+        # Map display back to internal value and update session state
+        new_strategy = strategy_options[strategy_labels.index(strategy_display)]
+        
+        # Check if strategy changed and force rerun if needed
+        if st.session_state.suggestion_strategy != new_strategy:
+            st.session_state.suggestion_strategy = new_strategy
+            st.session_state.current_mol_idx = 0  # Reset to first molecule with new strategy
+            st.rerun()
         
         st.divider()
         
@@ -410,22 +408,11 @@ def main():
             st.session_state.current_mol_idx = 0  # Reset to first suggested molecule after training
             st.rerun()
         
-        # Show model training status and current strategy
+        # Show model training status
         if st.session_state.has_predictions:
             st.success("🤖 Model Trained!")
             pred_count = molecules_df['prediction'].notna().sum()
             st.metric("Predictions Made", pred_count)
-            
-            # Show active strategy with clear visual indicator
-            current_strategy = st.session_state.suggestion_strategy
-            if current_strategy == "uncertainty":
-                st.info("📍 **Active Strategy: Uncertainty**\\nShowing molecules with highest prediction uncertainty first.")
-            elif current_strategy == "predicted_grade":
-                st.info("📍 **Active Strategy: Best Predicted**\\nShowing molecules with highest predicted grades first.")
-            else:
-                st.info("📍 **Active Strategy: Score-based**\\nUsing score-based ordering.")
-        else:
-            st.info("📍 **Score-based ordering**\\nTrain model to enable ML-guided suggestions.")
         
         st.divider()
         
@@ -436,25 +423,9 @@ def main():
     suggested_molecules = None
     current_strategy = st.session_state.suggestion_strategy
     
-    if st.session_state.has_predictions:
-        if current_strategy == "uncertainty":
-            suggested_molecules = select_molecules_for_labeling(molecules_df, n_molecules=20, strategy="uncertainty")
-        elif current_strategy == "predicted_grade":
-            suggested_molecules = select_molecules_for_labeling(molecules_df, n_molecules=20, strategy="predicted_grade")
+    # Always get suggested molecules based on current strategy
+    suggested_molecules = select_molecules_for_labeling(molecules_df, n_molecules=20, strategy=current_strategy)
     
-    # Debug output to show strategy in action
-    if suggested_molecules:
-        st.caption(f"🎯 Using **{current_strategy}** strategy - prioritizing {len(suggested_molecules)} molecules")
-        
-        # Show top suggested molecules for debugging
-        with st.expander("🔍 Debug: Top Suggested Molecules", expanded=False):
-            ungraded_df = get_ungraded_molecules(molecules_df)
-            top_suggested = ungraded_df[ungraded_df['id'].isin(suggested_molecules[:5])]
-            
-            if len(top_suggested) > 0:
-                debug_cols = ['name', 'prediction', 'prediction_uncertainty', 'score']
-                available_cols = [col for col in debug_cols if col in top_suggested.columns]
-                st.dataframe(top_suggested[available_cols].head(), hide_index=True)
     
     # Filter and sort molecules (with suggestions prioritized if available)
     filtered_df = filter_and_sort_molecules(molecules_df, mode, current_strategy, suggested_molecules)

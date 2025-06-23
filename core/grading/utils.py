@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 from typing import Optional
 import logging
+import streamlit as st
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ def filter_and_sort_molecules(df: pd.DataFrame, mode: str, sort_method: str,
     Args:
         df: Molecules DataFrame
         mode: Filter mode ('annotate', 'review', 'all')
-        sort_method: Sort method ('score', 'uncertainty', 'predicted_grade', 'prediction')
+        sort_method: Sort method ('random', 'highest_score', 'uncertainty', 'predicted_grade', 'prediction')
         suggested_molecules: List of molecule IDs to prioritize (optional)
         
     Returns:
@@ -111,8 +112,25 @@ def filter_and_sort_molecules(df: pd.DataFrame, mode: str, sort_method: str,
             
         else:
             # Normal sorting when no suggestions available
-            if sort_method == "score":
-                filtered_df = filtered_df.sort_values('score', ascending=True)
+            if sort_method == "random":
+                filtered_df = filtered_df.sample(frac=1, random_state=42).reset_index(drop=True)
+            elif sort_method == "highest_score":
+                # Get score direction from session state metadata if available
+                score_direction = "Lower is better"  # Default
+                if hasattr(st, 'session_state') and hasattr(st.session_state, 'session_id') and st.session_state.session_id:
+                    try:
+                        from utils.data_processing import load_session_metadata
+                        session_dir = f"data/sessions/{st.session_state.session_id}"
+                        metadata = load_session_metadata(session_dir)
+                        if metadata:
+                            score_direction = metadata.get('score_direction', 'Lower is better')
+                    except Exception:
+                        pass  # Use default if metadata not available
+                
+                if score_direction == "Higher is better":
+                    filtered_df = filtered_df.sort_values('score', ascending=False)
+                else:
+                    filtered_df = filtered_df.sort_values('score', ascending=True)
             elif sort_method == "uncertainty" and 'prediction_uncertainty' in filtered_df.columns:
                 filtered_df = filtered_df.sort_values('prediction_uncertainty', ascending=False, na_position='last')
             elif sort_method == "predicted_grade" and 'prediction' in filtered_df.columns:
@@ -122,8 +140,8 @@ def filter_and_sort_molecules(df: pd.DataFrame, mode: str, sort_method: str,
                 filtered_df = filtered_df.sort_values('pred_score', ascending=False, na_position='last')
                 filtered_df = filtered_df.drop('pred_score', axis=1)
             else:
-                # Fallback to score
-                filtered_df = filtered_df.sort_values('score', ascending=True)
+                # Fallback to random
+                filtered_df = filtered_df.sample(frac=1, random_state=42).reset_index(drop=True)
                 
     elif mode == "review":
         # Show graded molecules
