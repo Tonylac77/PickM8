@@ -81,38 +81,64 @@ def train_model_with_calibration(X: np.ndarray, y: np.ndarray, model_type: str =
     Returns:
         Tuple of (trained_model, performance_metrics)
     """
+    logger.info(f"Starting model training with {len(X)} samples, {X.shape[1] if len(X) > 0 else 0} features")
+    logger.info(f"Target labels: {y}")
+    logger.info(f"Model type: {model_type}, Use calibration: {use_calibration}")
+    
     if len(X) == 0 or len(y) == 0:
         raise ValueError("Empty training data")
     
+    # Check data consistency
+    if len(X) != len(y):
+        raise ValueError(f"Feature matrix and labels have different lengths: {len(X)} vs {len(y)}")
+    
     # Create base model
+    logger.info(f"Creating {model_type} model...")
     base_model = create_ml_model(model_type, **kwargs)
+    logger.info(f"Created model: {base_model}")
     
     # Train base model first
-    base_model.fit(X, y)
+    logger.info("Training base model...")
+    try:
+        base_model.fit(X, y)
+        logger.info("Base model training completed successfully")
+    except Exception as e:
+        logger.error(f"Error training base model: {e}")
+        raise
     
     # Use calibration for better uncertainty estimates (only if enough samples and classes)
     unique_classes = np.unique(y)
     min_samples_per_class = min([np.sum(y == cls) for cls in unique_classes])
     
+    logger.info(f"Unique classes: {unique_classes}")
+    logger.info(f"Min samples per class: {min_samples_per_class}")
+    logger.info(f"Total samples: {len(X)}")
+    
     if (use_calibration and len(unique_classes) > 1 and 
         len(X) >= 20 and min_samples_per_class >= 3):
         try:
+            logger.info("Attempting probability calibration...")
             # Use 3-fold CV only if we have enough samples per class
             cv_folds = min(3, min_samples_per_class)
+            logger.info(f"Using {cv_folds} CV folds for calibration")
             model = CalibratedClassifierCV(base_model, method='isotonic', cv=cv_folds)
             model.fit(X, y)
+            logger.info("Calibration completed successfully")
         except Exception as e:
             logger.warning(f"Calibration failed, using base model: {e}")
             model = base_model
     else:
+        logger.info("Skipping calibration (insufficient data or single class)")
         model = base_model
     
     # Calculate simple training accuracy
+    logger.info("Calculating performance metrics...")
     metrics = {}
     if len(np.unique(y)) > 1:  # Only if we have multiple classes
         try:
             y_pred = model.predict(X)
             metrics['train_accuracy'] = float(accuracy_score(y, y_pred))
+            logger.info(f"Training accuracy: {metrics['train_accuracy']:.3f}")
             
         except Exception as e:
             logger.warning(f"Error calculating performance metrics: {e}")
@@ -120,8 +146,9 @@ def train_model_with_calibration(X: np.ndarray, y: np.ndarray, model_type: str =
             metrics['train_accuracy'] = 0.0
     else:
         metrics['train_accuracy'] = 1.0  # Single class case
+        logger.info("Single class case, setting accuracy to 1.0")
     
-    logger.info(f"Trained {model_type} model with {len(X)} samples, accuracy: {metrics.get('train_accuracy', 'N/A'):.3f}")
+    logger.info(f"Model training completed. Final metrics: {metrics}")
     
     return model, metrics
 
