@@ -8,6 +8,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import logging
+import traceback
 from typing import Dict, List, Optional
 
 # Import new functional utilities
@@ -30,7 +31,13 @@ from core.active_learning import (
 )
 from utils.visualization import MoleculeVisualizer
 
+# Configure logging - INFO level to reduce noise
+logging.getLogger('watchdog').setLevel(logging.WARNING)
+logging.getLogger('streamlit').setLevel(logging.WARNING)
+
+# Set up our logger
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 st.set_page_config(page_title="Active Learning - PickM8", page_icon="🎯", layout="wide")
 
@@ -240,29 +247,90 @@ def train_model_interface(df: pd.DataFrame, session_dir: str):
     
     with st.spinner("Training machine learning model..."):
         try:
+            logger.info("Starting model training process...")
+            
             # Prepare features and labels
+            logger.info("Preparing features from graded molecules...")
             features, mol_ids = prepare_features_from_dataframe(graded_df)
+            logger.info(f"Prepared features for {len(mol_ids)} molecules, feature shape: {features.shape if len(features) > 0 else 'empty'}")
             
             if len(features) == 0:
-                st.error("No valid features found for model training")
+                error_msg = "No valid features found for model training"
+                logger.error(error_msg)
+                
+                # Store error in session state so it persists
+                st.session_state.training_error = {
+                    'message': error_msg,
+                    'traceback': 'No molecules have computed fingerprints available for training',
+                    'timestamp': datetime.now().isoformat()
+                }
+                
+                st.error(f"❌ {error_msg}")
+                st.warning("This usually means:")
+                st.write("• Fingerprints haven't been computed for graded molecules")
+                st.write("• The data processing step was incomplete")
+                st.write("• Graded molecules are missing required molecular data")
+                
+                # Show diagnostic information
+                with st.expander("🔍 Diagnostic Information", expanded=True):
+                    st.write("**Graded Molecules Fingerprint Status:**")
+                    
+                    fingerprint_status = []
+                    for idx, row in graded_df.iterrows():
+                        # Safe checking for fingerprint data (handles arrays and None)
+                        def check_fp_status(fp_data):
+                            if fp_data is None:
+                                return '❌'
+                            if isinstance(fp_data, (list, np.ndarray)):
+                                return '✅' if len(fp_data) > 0 else '❌'
+                            return '✅' if pd.notna(fp_data) else '❌'
+                        
+                        status = {
+                            'ID': row['id'],
+                            'Name': row['name'],
+                            'Grade': row['grade'],
+                            'Morgan FP': check_fp_status(row.get('morgan_fp')),
+                            'RDKit FP': check_fp_status(row.get('rdkit_fp')),
+                            'MapChiral FP': check_fp_status(row.get('mapchiral_fp')),
+                            'Interaction FP': check_fp_status(row.get('interaction_fp'))
+                        }
+                        fingerprint_status.append(status)
+                    
+                    if fingerprint_status:
+                        st.dataframe(pd.DataFrame(fingerprint_status), use_container_width=True)
+                    
+                    st.write("**Solution:** Go to the main page and reprocess the molecules to compute missing fingerprints.")
+                
                 return df
             
             # Get grades for training molecules
+            logger.info("Extracting grades for training molecules...")
             grades = [graded_df[graded_df['id'] == mid]['grade'].iloc[0] for mid in mol_ids]
+            logger.info(f"Training grades: {grades}")
             
             # Encode grades
+            logger.info("Encoding grades for training...")
             encoded_labels, label_to_int, int_to_label = encode_grades_for_training(grades)
+            logger.info(f"Encoded labels: {encoded_labels}")
+            logger.info(f"Label mappings - to_int: {label_to_int}, to_label: {int_to_label}")
             
             # Train model
+            logger.info("Training model with calibration...")
             model, metrics = train_model_with_calibration(features, encoded_labels)
+            logger.info(f"Model training completed. Metrics: {metrics}")
             
             # Make predictions on all molecules
+            logger.info("Preparing features for all molecules for prediction...")
             all_features, all_mol_ids = prepare_features_from_dataframe(df)
+            logger.info(f"Prepared features for {len(all_mol_ids)} total molecules")
             
             if len(all_features) > 0:
+                logger.info("Making predictions...")
                 predictions, probabilities, uncertainties = predict_with_uncertainty(model, all_features)
+                logger.info(f"Generated {len(predictions)} predictions")
                 
                 # Convert predictions back to grades
+                logger.info("Converting predictions to grades...")
                 prediction_data = {}
                 for i, mol_id in enumerate(all_mol_ids):
                     # Convert numeric prediction back to grade
@@ -286,24 +354,56 @@ def train_model_interface(df: pd.DataFrame, session_dir: str):
                         'uncertainty': float(uncertainties[i])
                     }
                 
+                logger.info(f"Converted {len(prediction_data)} predictions to grades")
+                
                 # Update DataFrame with predictions  
+                logger.info("Updating DataFrame with predictions...")
                 updated_df = update_model_predictions(df, prediction_data)
                 
                 # Save updated DataFrame
+                logger.info("Saving updated DataFrame...")
                 save_molecules_dataframe(updated_df, session_dir)
                 
                 # Debug info
                 pred_count = updated_df['prediction'].notna().sum()
-                logger.info(f"Updated {pred_count} molecules with predictions")
+                logger.info(f"Successfully updated {pred_count} molecules with predictions")
                 
                 st.success(f"✅ Model trained successfully! Accuracy: {metrics.get('train_accuracy', 'N/A'):.3f}")
                 st.info(f"Generated predictions for {pred_count} molecules")
                 
                 return updated_df
+            else:
+                logger.warning("No features available for making predictions")
+                st.warning("No features available for making predictions")
             
         except Exception as e:
-            logger.error(f"Error training model: {e}")
-            st.error(f"Error training model: {e}")
+            logger.error(f"Error training model: {e}", exc_info=True)
+            st.error(f"❌ Error training model: {str(e)}")
+            
+            # Display full error trace for debugging  
+            import traceback
+            full_trace = traceback.format_exc()
+            logger.error(f"Full traceback: {full_trace}")
+            
+            with st.expander("🔍 Full Error Details (Click to expand)", expanded=False):
+                st.code(full_trace, language="python")
+                
+            # Additional debugging info
+            st.write("**Debug Information:**")
+            st.write(f"- Graded molecules: {len(graded_df)}")
+            st.write(f"- Total molecules: {len(df)}")
+            st.write(f"- Session directory: {session_dir}")
+            
+            # Show column information
+            st.write("**Available DataFrame columns:**")
+            st.write(list(df.columns))
+            
+            # Show sample data
+            if len(graded_df) > 0:
+                st.write("**Sample graded molecule data:**")
+                sample_cols = ['id', 'name', 'score', 'grade', 'morgan_fp', 'interaction_fp', 'clashes', 'strain_energy']
+                display_cols = [col for col in sample_cols if col in graded_df.columns]
+                st.dataframe(graded_df[display_cols].head(2))
     
     return df
 
@@ -403,10 +503,31 @@ def main():
         
         # Training interface
         if st.button("🤖 Train Model", type="primary", disabled=graded_count < 3):
-            molecules_df = train_model_interface(molecules_df, session_dir)
-            st.session_state.molecules_df = molecules_df
-            st.session_state.current_mol_idx = 0  # Reset to first suggested molecule after training
-            st.rerun()
+            # Clear any previous training error
+            if 'training_error' in st.session_state:
+                del st.session_state.training_error
+                
+            # Train the model
+            updated_molecules_df = train_model_interface(molecules_df, session_dir)
+            
+            # Only update and rerun if training was successful (no error stored)
+            if 'training_error' not in st.session_state:
+                st.session_state.molecules_df = updated_molecules_df
+                st.session_state.current_mol_idx = 0  # Reset to first suggested molecule after training
+                st.rerun()
+            # If there's an error, don't rerun - this preserves the error display
+        
+        # Display persistent training error if it exists
+        if 'training_error' in st.session_state:
+            st.error(f"❌ Training Error: {st.session_state.training_error['message']}")
+            
+            with st.expander("🔍 Full Error Details", expanded=False):
+                st.text(f"Error occurred at: {st.session_state.training_error['timestamp']}")
+                st.code(st.session_state.training_error['traceback'], language="python")
+                
+            if st.button("Clear Error", key="clear_training_error"):
+                del st.session_state.training_error
+                st.rerun()
         
         # Show model training status
         if st.session_state.has_predictions:
