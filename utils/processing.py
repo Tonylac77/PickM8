@@ -10,7 +10,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import multiprocessing as mp
 
 from core.fingerprints import (
-    compute_morgan_fingerprint, compute_rdkit_fingerprint, 
+    compute_morgan_fingerprint, compute_rdkit_fingerprint, compute_mapchiral_fingerprint,
     compute_interaction_fingerprint
 )
 from core.pose_analysis import compute_pose_quality_batch
@@ -26,6 +26,7 @@ def process_molecule_fingerprints(args):
         'id': mol_id,
         'morgan_fp': None,
         'rdkit_fp': None,
+        'mapchiral_fp': None,
         'interaction_fp': None,
         'interactions': None,
         'num_interactions': 0
@@ -44,6 +45,14 @@ def process_molecule_fingerprints(args):
             result['rdkit_fp'] = compute_rdkit_fingerprint(
                 mol,
                 n_bits=fp_config.get('rdkit_bits', 2048)
+            )
+            
+        if fp_config.get('compute_mapchiral', True):
+            result['mapchiral_fp'] = compute_mapchiral_fingerprint(
+                mol,
+                max_radius=fp_config.get('mapchiral_max_radius', 2),
+                n_permutations=fp_config.get('mapchiral_n_permutations', 2048),
+                mapping=fp_config.get('mapchiral_mapping', False)
             )
             
         # Compute interaction fingerprints
@@ -132,6 +141,7 @@ def compute_fingerprints_batch(df: pd.DataFrame, protein_content: str,
             row_idx = df.index[mask].tolist()[0]
             df.at[row_idx, 'morgan_fp'] = result['morgan_fp']
             df.at[row_idx, 'rdkit_fp'] = result['rdkit_fp']
+            df.at[row_idx, 'mapchiral_fp'] = result['mapchiral_fp']
             df.at[row_idx, 'interaction_fp'] = result['interaction_fp']
             df.at[row_idx, 'interactions'] = result['interactions']
             df.at[row_idx, 'num_interactions'] = result['num_interactions']
@@ -161,6 +171,7 @@ def get_fingerprint_statistics(df: pd.DataFrame) -> Dict[str, Any]:
         "total_molecules": total_molecules,
         "morgan_fp_computed": df['morgan_fp'].notna().sum(),
         "rdkit_fp_computed": df['rdkit_fp'].notna().sum(),
+        "mapchiral_fp_computed": df['mapchiral_fp'].notna().sum() if 'mapchiral_fp' in df.columns else 0,
         "interaction_fp_computed": df['interaction_fp'].notna().sum(),
         "molecules_with_interactions": (df['num_interactions'] > 0).sum(),
         "avg_interactions_per_molecule": df['num_interactions'].mean(),
@@ -171,6 +182,7 @@ def get_fingerprint_statistics(df: pd.DataFrame) -> Dict[str, Any]:
     # Calculate completion percentages
     stats["morgan_fp_percentage"] = (stats["morgan_fp_computed"] / total_molecules) * 100
     stats["rdkit_fp_percentage"] = (stats["rdkit_fp_computed"] / total_molecules) * 100
+    stats["mapchiral_fp_percentage"] = (stats["mapchiral_fp_computed"] / total_molecules) * 100
     stats["interaction_fp_percentage"] = (stats["interaction_fp_computed"] / total_molecules) * 100
     
     return stats

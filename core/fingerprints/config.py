@@ -18,5 +18,9 @@ def create_default_fingerprint_config() -> Dict[str, Any]:
         "morgan_bits": 2048,
         "compute_rdkit": True,
         "rdkit_bits": 2048,
+        "compute_mapchiral": True,
+        "mapchiral_max_radius": 2,
+        "mapchiral_n_permutations": 2048,
+        "mapchiral_mapping": False,
         "compute_interactions": True
     }

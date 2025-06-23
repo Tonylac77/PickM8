@@ -12,6 +12,9 @@ fingerprinting:
   molecule_fp_type: "morgan"  # RDKit fingerprint type
   molecule_fp_size: 4096
   molecule_fp_radius: 2
+  mapchiral_max_radius: 2
+  mapchiral_n_permutations: 2048
+  mapchiral_mapping: false
   
 models:
   default_type: "ensemble"

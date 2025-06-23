@@ -27,21 +27,20 @@ def is_prolif_available():
     return PROLIF_AVAILABLE
 
 
-def create_ligand_sdf(ligand_mol: 'Chem.Mol') -> str:
+def create_ligand_pdb(ligand_mol: 'Chem.Mol') -> str:
     """
-    Create temporary SDF file for ligand.
+    Create temporary PDB file for ligand.
     
     Args:
         ligand_mol: RDKit molecule object
         
     Returns:
-        Path to temporary SDF file
+        Path to temporary PDB file
     """
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.sdf', delete=False) as tmp_sdf:
-        sdf_writer = Chem.SDWriter(tmp_sdf.name)
-        sdf_writer.write(ligand_mol)
-        sdf_writer.close()
-        return tmp_sdf.name
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.pdb', delete=False) as tmp_pdb:
+        pdb_block = Chem.MolToPDBBlock(ligand_mol)
+        tmp_pdb.write(pdb_block)
+        return tmp_pdb.name
 
 
 def extract_prolif_interactions(ifp_df) -> list:
@@ -115,13 +114,13 @@ def calculate_prolif_interactions(protein_path: str, ligand_mol: 'Chem.Mol', lig
     if not PROLIF_AVAILABLE:
         raise ImportError("ProLIF is not available. Install with: pip install prolif")
     
-    # Create temporary SDF file for ligand
-    tmp_sdf_path = create_ligand_sdf(ligand_mol)
+    # Create temporary PDB file for ligand
+    tmp_pdb_path = create_ligand_pdb(ligand_mol)
     
     try:
         # Load structures with MDAnalysis
         protein_u = mda.Universe(protein_path)
-        ligand_u = mda.Universe(tmp_sdf_path)
+        ligand_u = mda.Universe(tmp_pdb_path)
         
         # Create ProLIF fingerprint
         fp = plf.Fingerprint()
@@ -142,8 +141,8 @@ def calculate_prolif_interactions(protein_path: str, ligand_mol: 'Chem.Mol', lig
         
     finally:
         # Clean up temporary file
-        if os.path.exists(tmp_sdf_path):
-            os.unlink(tmp_sdf_path)
+        if os.path.exists(tmp_pdb_path):
+            os.unlink(tmp_pdb_path)
 
 
 def get_prolif_interaction_types() -> list:
