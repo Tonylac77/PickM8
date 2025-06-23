@@ -82,14 +82,23 @@ def compute_mapchiral_fingerprint(mol: Chem.Mol, max_radius: int = 2, n_permutat
     """
     try:
         if mol is None:
+            logger.warning("Molecule is None, cannot compute MapChiral fingerprint")
             return None
             
         if not MAPCHIRAL_AVAILABLE:
             logger.warning("MapChiral not available, returning None")
             return None
             
+        logger.info(f"Computing MapChiral fingerprint with max_radius={max_radius}, n_permutations={n_permutations}")
         fp = mapchiral_encode(mol, max_radius=max_radius, n_permutations=n_permutations, mapping=mapping)
-        return fp.tolist() if hasattr(fp, 'tolist') else list(fp)
+        
+        if fp is not None:
+            fp_list = fp.tolist() if hasattr(fp, 'tolist') else list(fp)
+            logger.info(f"MapChiral fingerprint computed successfully, length={len(fp_list)}")
+            return fp_list
+        else:
+            logger.warning("MapChiral fingerprint computation returned None")
+            return None
         
     except Exception as e:
         logger.error(f"Error computing MapChiral fingerprint: {e}")
