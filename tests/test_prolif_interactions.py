@@ -9,7 +9,7 @@ import pandas as pd
 
 from core.fingerprints.interactions.prolif import (
     is_prolif_available,
-    create_ligand_sdf,
+    create_ligand_pdb,
     extract_prolif_interactions,
     create_prolif_summary,
     calculate_prolif_interactions,
@@ -62,36 +62,36 @@ class TestProlifInteractions:
         assert isinstance(result, bool)
         assert result == PROLIF_AVAILABLE
     
-    def test_create_ligand_sdf_valid_molecule(self, sample_molecule):
-        """Test creating SDF file from valid molecule"""
+    def test_create_ligand_pdb_valid_molecule(self, sample_molecule):
+        """Test creating PDB file from valid molecule"""
         if sample_molecule is None:
             pytest.skip("Could not create sample molecule")
         
-        sdf_path = create_ligand_sdf(sample_molecule)
+        pdb_path = create_ligand_pdb(sample_molecule)
         
         try:
-            assert os.path.exists(sdf_path)
-            assert sdf_path.endswith('.sdf')
+            assert os.path.exists(pdb_path)
+            assert pdb_path.endswith('.pdb')
             
-            # Verify SDF file contents
-            with open(sdf_path, 'r') as f:
+            # Verify PDB file contents
+            with open(pdb_path, 'r') as f:
                 content = f.read()
                 assert len(content) > 0
-                assert 'M  END' in content
+                assert 'ATOM' in content or 'HETATM' in content
                 
             # Verify we can read it back
-            mol_from_file = Chem.MolFromMolFile(sdf_path)
+            mol_from_file = Chem.MolFromPDBFile(pdb_path)
             assert mol_from_file is not None
             
         finally:
             # Clean up
-            if os.path.exists(sdf_path):
-                os.unlink(sdf_path)
+            if os.path.exists(pdb_path):
+                os.unlink(pdb_path)
     
-    def test_create_ligand_sdf_none_molecule(self):
-        """Test creating SDF file with None molecule"""
+    def test_create_ligand_pdb_none_molecule(self):
+        """Test creating PDB file with None molecule"""
         with pytest.raises((AttributeError, Exception)):  # RDKit may raise different exceptions
-            create_ligand_sdf(None)
+            create_ligand_pdb(None)
     
     def test_extract_prolif_interactions_with_data(self, sample_ifp_dataframe):
         """Test extracting interactions from ProLIF DataFrame with data"""
@@ -306,15 +306,15 @@ class TestProlifInteractions:
             mock_mda.Universe.side_effect = Exception("Test error")
             
             # Track temporary files
-            original_create_sdf = create_ligand_sdf
+            original_create_pdb = create_ligand_pdb
             created_files = []
             
-            def track_create_sdf(mol):
-                path = original_create_sdf(mol)
+            def track_create_pdb(mol):
+                path = original_create_pdb(mol)
                 created_files.append(path)
                 return path
             
-            with patch('core.fingerprints.interactions.prolif.create_ligand_sdf', side_effect=track_create_sdf):
+            with patch('core.fingerprints.interactions.prolif.create_ligand_pdb', side_effect=track_create_pdb):
                 with pytest.raises(Exception, match="Test error"):
                     calculate_prolif_interactions(str(protein_file_path), sample_molecule)
                 
@@ -374,8 +374,8 @@ class TestProlifInteractionsWithRealData:
         """Path to test SDF file with molecules"""
         return Path(__file__).parent.parent / "test_data" / "example_poses_1fvv.sdf"
     
-    def test_create_ligand_sdf_with_real_molecule(self, sdf_file_path):
-        """Test creating SDF from real molecule data"""
+    def test_create_ligand_pdb_with_real_molecule(self, sdf_file_path):
+        """Test creating PDB from real molecule data"""
         if not sdf_file_path.exists():
             pytest.skip("Test SDF file not available")
         
@@ -386,22 +386,22 @@ class TestProlifInteractionsWithRealData:
         if mol is None:
             pytest.skip("Could not read molecule from test SDF")
         
-        # Test creating new SDF
-        temp_sdf_path = create_ligand_sdf(mol)
+        # Test creating new PDB
+        temp_pdb_path = create_ligand_pdb(mol)
         
         try:
-            assert os.path.exists(temp_sdf_path)
+            assert os.path.exists(temp_pdb_path)
             
             # Verify we can read the molecule back
-            mol_from_temp = Chem.MolFromMolFile(temp_sdf_path)
+            mol_from_temp = Chem.MolFromPDBFile(temp_pdb_path)
             assert mol_from_temp is not None
             
             # Should have same number of atoms
             assert mol.GetNumAtoms() == mol_from_temp.GetNumAtoms()
             
         finally:
-            if os.path.exists(temp_sdf_path):
-                os.unlink(temp_sdf_path)
+            if os.path.exists(temp_pdb_path):
+                os.unlink(temp_pdb_path)
     
     def test_prolif_functions_integration(self, protein_file_path, sdf_file_path):
         """Test integration of ProLIF functions with real data"""
