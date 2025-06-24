@@ -2,37 +2,52 @@
 PickM8 Main Application
 Active Learning for Molecular Screening using functional data processing approach.
 """
-import json
 import logging
 import tempfile
 import traceback
-import uuid
 from datetime import datetime
 from pathlib import Path
 
-import pandas as pd
 import streamlit as st
 import yaml
 
-from core.fingerprints import (
-	create_default_fingerprint_config,
-	create_default_interaction_config,
-)
-from core.pose_analysis import (
-	compute_pose_quality_batch,
-	create_default_posecheck_config,
+# Import new session service layer
+from core.session import (
+    create_new_session,
+    load_session_data,
+    reprocess_session_data,
+    get_session_list,
+    detect_sdf_properties,
+    validate_uploaded_files,
+    process_score_column,
+    create_processing_configs,
+    execute_processing_pipeline,
+    save_session_data,
+    generate_session_id,
+    prepare_file_for_processing,
+    find_default_score_property,
+    create_processing_statistics_summary,
+    create_and_save_session,
+    execute_reprocessing_pipeline,
+    validate_and_prepare_session_creation
 )
 
-# Import new functional utilities
-from utils.data_processing import (
-	load_molecules_dataframe,
-	load_pdb_file,
-	load_sdf_file,
-	load_session_metadata,
-	save_molecules_dataframe,
-	save_session_metadata,
+# Import UI service layer
+from core.ui import (
+    validate_session_inputs,
+    prepare_session_state_data,
+    update_session_state,
+    clear_session_selections,
+    handle_creation_success,
+    handle_creation_error,
+    handle_loading_success,
+    handle_loading_error,
+    handle_processing_success,
+    handle_reprocessing_success
 )
-from utils.processing import compute_fingerprints_batch, get_fingerprint_statistics
+
+# Import functional utilities  
+from utils.processing import get_fingerprint_statistics
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -61,142 +76,88 @@ def load_config():
 
 
 def get_existing_sessions():
-	"""Get list of existing sessions with metadata."""
-	sessions_dir = Path("data/sessions")
-	if not sessions_dir.exists():
-		return []
-	
-	sessions = []
-	for session_dir in sessions_dir.iterdir():
-		if session_dir.is_dir():
-			try:
-				# Load session metadata
-				metadata = load_session_metadata(str(session_dir))
-				if metadata is None:
-					continue
-				
-				# Load molecules to get counts
-				molecules_df = load_molecules_dataframe(str(session_dir))
-				
-				num_molecules = len(molecules_df) if molecules_df is not None else 0
-				num_grades = 0
-				
-				if molecules_df is not None and 'grade' in molecules_df.columns:
-					num_grades = molecules_df['grade'].notna().sum()
-				
-				# Get last modified time
-				molecule_file = session_dir / "molecules.pkl"
-				last_modified = datetime.fromtimestamp(
-					molecule_file.stat().st_mtime if molecule_file.exists() 
-					else session_dir.stat().st_mtime
-				)
-				
-				sessions.append({
-					'session_id': session_dir.name,
-					'session_id_short': session_dir.name[:8],
-					'protein_name': metadata.get('protein_name', 'Unknown'),
-					'num_molecules': num_molecules,
-					'num_grades': num_grades,
-					'last_modified': last_modified,
-					'score_label': metadata.get('score_label', 'score'),
-					'created_date': metadata.get('created_date', 'Unknown')
-				})
-				
-			except Exception as e:
-				logger.warning(f"Could not read session {session_dir.name}: {str(e)}")
-				continue
-	
-	# Sort by last modified (newest first)
-	sessions.sort(key=lambda x: x['last_modified'], reverse=True)
-	return sessions
+	"""Get list of existing sessions with metadata. Wrapper for service function."""
+	return get_session_list()
 
 
-def process_molecules_pipeline(df, protein_content, fp_config, interaction_config, pose_config):
-	"""Process molecules through the complete pipeline."""
+def render_processing_pipeline(
+	molecules_df, 
+	protein_content: str, 
+	processing_configs: dict
+) -> tuple:
+	"""Render processing pipeline with progress tracking and statistics display."""
 	
 	progress_bar = st.progress(0)
 	status = st.empty()
 	
-	# Step 1: Compute fingerprints
-	status.text("Computing molecular and interaction fingerprints...")
-	df = compute_fingerprints_batch(
-		df, protein_content, fp_config, interaction_config
+	# Execute processing using service layer
+	status.text("Starting processing pipeline...")
+	progress_bar.progress(0.1)
+	
+	status.text("Processing molecules...")
+	progress_bar.progress(0.3)
+	
+	# Use service layer function
+	processing_result = execute_processing_pipeline(
+		molecules_df, protein_content, processing_configs
 	)
-	progress_bar.progress(0.4)
 	
-	# Step 2: Compute pose quality metrics
-	status.text("Analyzing pose quality...")
-	df = compute_pose_quality_batch(df, protein_content, pose_config)
-	progress_bar.progress(0.8)
+	progress_bar.progress(0.9)
+	status.text("Finalizing...")
 	
-	# Step 3: Final cleanup
-	status.text("Finalizing processing...")
+	processed_df = processing_result['processed_df']
+	processing_summary = processing_result['processing_summary']
+	
 	progress_bar.progress(1.0)
-	
-	# Show statistics
-	fp_stats = get_fingerprint_statistics(df)
 	status.text("Processing complete!")
 	
-	st.success(f"✅ Successfully processed {len(df)} molecules")
+	if processing_summary['success']:
+		st.success(f"✅ Successfully processed {len(processed_df)} molecules")
+		
+		# Display processing statistics using service layer function
+		fp_stats = processing_summary['fingerprint_stats']
+		stats_summary = create_processing_statistics_summary(fp_stats)
+		
+		render_processing_statistics(stats_summary)
+	else:
+		st.error(f"❌ Processing failed: {processing_summary.get('error', 'Unknown error')}")
 	
-	# Display processing statistics
+	return processed_df, processing_summary
+
+
+def render_processing_statistics(stats_summary: dict):
+	"""Render processing statistics in expandable section."""
 	with st.expander("📊 Processing Statistics"):
 		col1, col2, col3, col4 = st.columns(4)
 		
 		with col1:
-			st.metric("Molecules Processed", fp_stats['total_molecules'])
-			st.metric("Morgan FP", f"{fp_stats['morgan_fp_percentage']:.1f}%")
+			st.metric("Molecules Processed", stats_summary['total_molecules'])
+			st.metric("Morgan FP", f"{stats_summary['fingerprint_percentages']['morgan']:.1f}%")
 		
 		with col2:
-			st.metric("RDKit FP", f"{fp_stats['rdkit_fp_percentage']:.1f}%")
-			st.metric("MapChiral FP", f"{fp_stats['mapchiral_fp_percentage']:.1f}%")
+			st.metric("RDKit FP", f"{stats_summary['fingerprint_percentages']['rdkit']:.1f}%")
+			st.metric("MapChiral FP", f"{stats_summary['fingerprint_percentages']['mapchiral']:.1f}%")
 		
 		with col3:
-			st.metric("Interaction FP", f"{fp_stats['interaction_fp_percentage']:.1f}%")
-			st.metric("Avg Interactions", f"{fp_stats['avg_interactions_per_molecule']:.1f}")
+			st.metric("Interaction FP", f"{stats_summary['fingerprint_percentages']['interaction']:.1f}%")
+			st.metric("Avg Interactions", f"{stats_summary['interaction_metrics']['avg_interactions']:.1f}")
 		
 		with col4:
-			st.metric("Molecules with Interactions", fp_stats['molecules_with_interactions'])
-			st.metric("Max Interactions", fp_stats['max_interactions'])
-	
-	return df
+			st.metric("Molecules with Interactions", stats_summary['interaction_metrics']['molecules_with_interactions'])
+			st.metric("Max Interactions", stats_summary['interaction_metrics']['max_interactions'])
 
 
-def detect_sdf_properties(sdf_path):
-	"""Detect available properties in SDF file."""
-	try:
-		# Load just first few molecules to detect properties
-		import pandas as pd
-		from rdkit.Chem import PandasTools
-		
-		temp_df = PandasTools.LoadSDF(sdf_path, molColName='mol')
-		if len(temp_df) == 0:
-			return []
-		
-		# Get column names excluding RDKit columns
-		properties = [col for col in temp_df.columns 
-					 if col not in ['mol', 'ID'] and not col.startswith('_')]
-		
-		return properties
-		
-	except Exception as e:
-		logger.error(f"Error detecting SDF properties: {e}")
-		return []
 
 
-def upload_new_session():
-	"""Handle uploading new PDB and SDF files for a new session."""
-	st.subheader("🆕 Create New Session")
-	
+def render_file_upload_section():
+	"""Render file upload UI section. Returns uploaded file objects."""
 	col1, col2 = st.columns(2)
 	
 	with col1:
 		st.markdown("#### 1. Upload Protein Structure")
 		protein_file = st.file_uploader("Select PDB file", type=['pdb'], key="new_protein")
 		
-		protein_content = None
 		if protein_file:
-			protein_content = protein_file.getvalue().decode('utf-8')
 			st.success(f"✅ Loaded protein: {protein_file.name}")
 	
 	with col2:
@@ -207,65 +168,64 @@ def upload_new_session():
 				"• All score values must be numeric\n" 
 				"• No missing scores allowed\n"
 				"• Choose direction preference below")
-		
-		ligand_path = None
-		score_label = "score"
-		available_properties = []
-		
-		if ligand_file:
-			# Save uploaded file temporarily
-			with tempfile.NamedTemporaryFile(delete=False, suffix='.sdf') as tmp:
-				tmp.write(ligand_file.getvalue())
-				ligand_path = tmp.name
-			
-			# Detect available properties in the SDF file
-			with st.spinner("Detecting SDF properties..."):
-				available_properties = detect_sdf_properties(ligand_path)
-			
-			if available_properties:
-				st.success(f"📋 Found {len(available_properties)} properties")
-				
-				# Create dropdown for score selection
-				default_index = 0
-				score_candidates = ["minimizedAffinity", "score", "Score", "docking_score", "binding_affinity"]
-				
-				for candidate in score_candidates:
-					if candidate in available_properties:
-						default_index = available_properties.index(candidate)
-						break
-				
-				score_label = st.selectbox(
-					"Select docking score property:",
-					options=available_properties,
-					index=default_index,
-					help="Choose which property to use as the docking score"
-				)
-				
-				# Add score direction toggle
-				col_score1, col_score2 = st.columns(2)
-				with col_score1:
-					score_direction = st.selectbox(
-						"Score interpretation:",
-						options=["Lower is better", "Higher is better"],
-						index=0,
-						help="How should scores be interpreted for ranking?"
-					)
-				with col_score2:
-					st.info(f"Selected: **{score_label}**")
-				
-			else:
-				st.warning("⚠️ Could not detect properties. Manual input required.")
-				col_manual1, col_manual2 = st.columns(2)
-				with col_manual1:
-					score_label = st.text_input("Score property name", value="score")
-				with col_manual2:
-					score_direction = st.selectbox(
-						"Score interpretation:",
-						options=["Lower is better", "Higher is better"],
-						index=0
-					)
 	
-	# Configuration Section
+	return protein_file, ligand_file
+
+
+def render_score_selection(ligand_file):
+	"""Render score property selection UI. Returns score configuration."""
+	if not ligand_file:
+		return None, None, []
+	
+	# Save uploaded file temporarily and detect properties
+	with tempfile.NamedTemporaryFile(delete=False, suffix='.sdf') as tmp:
+		tmp.write(ligand_file.getvalue())
+		ligand_path = tmp.name
+	
+	with st.spinner("Detecting SDF properties..."):
+		available_properties = detect_sdf_properties(ligand_path)
+	
+	if available_properties:
+		st.success(f"📋 Found {len(available_properties)} properties")
+		
+		# Find default score property
+		default_score, default_index = find_default_score_property(available_properties)
+		
+		score_label = st.selectbox(
+			"Select docking score property:",
+			options=available_properties,
+			index=default_index,
+			help="Choose which property to use as the docking score"
+		)
+		
+		# Score direction selection
+		col_score1, col_score2 = st.columns(2)
+		with col_score1:
+			score_direction = st.selectbox(
+				"Score interpretation:",
+				options=["Lower is better", "Higher is better"],
+				index=0,
+				help="How should scores be interpreted for ranking?"
+			)
+		with col_score2:
+			st.info(f"Selected: **{score_label}**")
+	else:
+		st.warning("⚠️ Could not detect properties. Manual input required.")
+		col_manual1, col_manual2 = st.columns(2)
+		with col_manual1:
+			score_label = st.text_input("Score property name", value="score")
+		with col_manual2:
+			score_direction = st.selectbox(
+				"Score interpretation:",
+				options=["Lower is better", "Higher is better"],
+				index=0
+			)
+	
+	return score_label, score_direction, available_properties, ligand_path
+
+
+def render_processing_configuration():
+	"""Render processing configuration UI. Returns configuration options."""
 	st.markdown("#### 3. Processing Configuration")
 	
 	col3, col4, col5 = st.columns(3)
@@ -293,132 +253,135 @@ def upload_new_session():
 			help="Calculate clash detection and strain energy (requires PoseCheck)"
 		)
 	
-	# Validation for fingerprint selection
-	if not molecular_fp_types:
-		st.warning("⚠️ Please select at least one molecular fingerprint type.")
+	return interaction_type, molecular_fp_types, compute_pose_quality
+
+
+def handle_session_creation(
+	protein_file, ligand_path: str, score_label: str, score_direction: str,
+	available_properties: list, molecular_fp_types: list, 
+	interaction_type: str, compute_pose_quality: bool
+):
+	"""Handle the session creation and processing logic using service layer."""
+	with st.spinner("Creating session and processing molecules..."):
+		# Execute business logic using service layer
+		result = create_and_save_session(
+			protein_file, ligand_path, score_label, score_direction,
+			available_properties, molecular_fp_types, 
+			interaction_type, compute_pose_quality
+		)
+	
+	if result['success']:
+		# Handle success using UI service layer
+		success_response = handle_creation_success(
+			result['session_id'],
+			result['molecules_count'],
+			result['processing_summary'],
+			protein_file.name
+		)
+		
+		# Update session state
+		st.session_state.session_id = result['session_id']
+		st.session_state.molecules_df = result['molecules_df']
+		st.session_state.protein_content = result['protein_content']
+		
+		# Display success UI
+		st.success(success_response['message'])
+		if success_response['show_balloons']:
+			st.balloons()
+		
+		st.info(f"Score range: {result['score_range'][0]:.3f} to {result['score_range'][1]:.3f}")
+		
+		# Show next steps
+		st.markdown("### Next Steps:")
+		for step in success_response['next_steps']:
+			st.write(f"• {step}")
+		
+		# Navigation buttons
+		render_navigation_buttons()
+	else:
+		# Handle error using UI service layer
+		error_details = result.get('exception_details')
+		available_columns = result.get('available_columns')
+		
+		error_response = handle_creation_error(
+			result['error'], error_details
+		)
+		
+		# Display error UI
+		st.error(error_response['message'])
+		
+		if available_columns:
+			st.error("Available columns: " + ", ".join(available_columns))
+		
+		if error_response['show_expander'] and error_details:
+			with st.expander("Error Details"):
+				st.code(error_details)
+		
+		# Show suggestions
+		st.markdown("### Suggestions:")
+		for suggestion in error_response['suggestions']:
+			st.write(f"• {suggestion}")
+
+
+def render_navigation_buttons():
+	"""Render navigation buttons for after session creation."""
+	col_nav1, col_nav2 = st.columns(2)
+	with col_nav1:
+		if st.button("🎯 Start Active Learning", type="primary"):
+			st.switch_page("pages/3_🎯_Active_Learning.py")
+	
+	with col_nav2:
+		if st.button("📊 View Results", type="secondary"):
+			st.switch_page("pages/4_📊_Results.py")
+
+
+def upload_new_session():
+	"""Handle uploading new PDB and SDF files for a new session."""
+	st.subheader("🆕 Create New Session")
+	
+	# File upload section
+	protein_file, ligand_file = render_file_upload_section()
+	
+	# Score selection section (only if ligand file uploaded)
+	score_config = None
+	if ligand_file:
+		score_config = render_score_selection(ligand_file)
+	
+	# Processing configuration section
+	interaction_type, molecular_fp_types, compute_pose_quality = render_processing_configuration()
+	
+	# Validate inputs using UI service layer
+	score_label = score_config[0] if score_config else None
+	validation_result = validate_session_inputs(
+		protein_file, ligand_file, score_label, molecular_fp_types
+	)
+	
+	# Display validation warnings
+	if validation_result['warnings']:
+		for warning in validation_result['warnings']:
+			st.warning(f"⚠️ {warning}")
+	
+	# Display validation errors
+	if validation_result['errors']:
+		for error in validation_result['errors']:
+			st.error(f"❌ {error}")
+	
+	# Enable process button only when validation passes
+	can_process = validation_result['is_valid'] and score_config
 	
 	# Process button
-	if st.button("🚀 Create Session & Process", 
-				type="primary", 
-				disabled=not (protein_file and ligand_file and ligand_path and molecular_fp_types)):
+	if st.button("🚀 Create Session & Process", type="primary", disabled=not can_process):
+		score_label, score_direction, available_properties, ligand_path = score_config
 		
-		try:
-			# Create new session ID
-			new_session_id = str(uuid.uuid4())
-			session_dir = f"data/sessions/{new_session_id}"
-			
-			st.session_state.session_id = new_session_id
-			
-			with st.spinner("Loading molecules from SDF..."):
-				# Load molecules using new functional approach
-				molecules_df = load_sdf_file(ligand_path)
-				
-				# Validate and set score column
-				if score_label in molecules_df.columns:
-					score_values = molecules_df[score_label]
-					
-					# Check if all values are numeric
-					try:
-						numeric_scores = pd.to_numeric(score_values, errors='raise')
-						molecules_df['score'] = numeric_scores
-						
-						# Score direction is stored in metadata for selection logic
-						# Do not modify score values - selection logic will handle direction
-						
-						st.success(f"✅ Loaded {len(molecules_df)} molecules with valid scores")
-						st.info(f"Score range: {molecules_df['score'].min():.3f} to {molecules_df['score'].max():.3f}")
-						
-					except (ValueError, TypeError) as e:
-						st.error(f"❌ Score column '{score_label}' contains non-numeric values!")
-						st.error("All scores must be numeric. Please check your SDF file.")
-						return
-						
-				else:
-					st.error(f"❌ Score column '{score_label}' not found in SDF file!")
-					st.error("Available columns: " + ", ".join(molecules_df.columns.tolist()))
-					return
-			
-			if len(molecules_df) > 0:
-				# Create processing configurations
-				fp_config = create_default_fingerprint_config()
-				
-				# Update fingerprint config based on user selection
-				fp_config['compute_morgan'] = 'morgan' in molecular_fp_types
-				fp_config['compute_rdkit'] = 'rdkit' in molecular_fp_types
-				fp_config['compute_mapchiral'] = 'mapchiral' in molecular_fp_types
-				
-				interaction_config = create_default_interaction_config()
-				interaction_config['interaction_type'] = interaction_type
-				
-				pose_config = create_default_posecheck_config()
-				pose_config['calculate_clashes'] = compute_pose_quality
-				pose_config['calculate_strain'] = compute_pose_quality
-				
-				st.subheader("Processing Molecules")
-				st.info(f"🧬 Using **{interaction_type.upper()}** interaction analysis")
-				
-				# Process molecules through complete pipeline
-				processed_df = process_molecules_pipeline(
-					molecules_df, protein_content, fp_config, interaction_config, pose_config
-				)
-				
-				# Save processed data
-				save_molecules_dataframe(processed_df, session_dir)
-				
-				# Save session metadata
-				session_metadata = {
-					'protein_name': protein_file.name,
-					'protein_content': protein_content,
-					'num_molecules': len(processed_df),
-					'score_label': score_label,
-					'score_direction': score_direction,
-					'created_date': datetime.now().isoformat(),
-					'interaction_type': interaction_type,
-					'compute_pose_quality': compute_pose_quality,
-					'available_properties': available_properties
-				}
-				save_session_metadata(session_dir, session_metadata)
-				
-				# Store in session state for immediate use
-				st.session_state.molecules_df = processed_df
-				st.session_state.protein_content = protein_content
-				
-				st.success(f"✅ Successfully created session and processed {len(processed_df)} molecules!")
-				st.balloons()
-				
-				# Navigation
-				col_nav1, col_nav2 = st.columns(2)
-				with col_nav1:
-					if st.button("🎯 Start Active Learning", type="primary"):
-						st.switch_page("pages/3_🎯_Active_Learning.py")
-				
-				with col_nav2:
-					if st.button("📊 View Results", type="secondary"):
-						st.switch_page("pages/4_📊_Results.py")
-			
-		except Exception as e:
-			st.error(f"❌ Error creating session: {str(e)}")
-			with st.expander("Error Details"):
-				st.code(traceback.format_exc())
-			logger.error(f"Session creation error: {e}", exc_info=True)
+		handle_session_creation(
+			protein_file, ligand_path, score_label, score_direction,
+			available_properties, molecular_fp_types, 
+			interaction_type, compute_pose_quality
+		)
 
 
-def load_existing_session():
-	"""Handle loading an existing session."""
-	st.subheader("📂 Load Existing Session")
-	
-	sessions = get_existing_sessions()
-	
-	if not sessions:
-		st.info("No existing sessions found. Create a new session to get started.")
-		return
-	
-	st.markdown(f"Found **{len(sessions)}** existing sessions:")
-	
-	# Session selection
-	selected_session = None
-	
-	# Display sessions in a compact format for selection
+def render_session_list(sessions: list):
+	"""Render the list of existing sessions with action buttons."""
 	for i, session in enumerate(sessions):
 		with st.container():
 			col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
@@ -445,37 +408,54 @@ def load_existing_session():
 				
 				with load_btn_col:
 					if st.button("📂 Load", key=f"load_{session['session_id']}", type="primary", use_container_width=True):
-						selected_session = session
 						st.session_state.selected_session_for_load = session['session_id']
 				
 				with reprocess_btn_col:
 					if st.button("🔄 Config", key=f"config_{session['session_id']}", type="secondary", use_container_width=True):
-						selected_session = session
 						st.session_state.selected_session_for_reprocess = session['session_id']
 		
 		st.divider()
+
+
+def handle_session_loading(sessions: list):
+	"""Handle the session loading logic using service layer."""
+	session_id = st.session_state.selected_session_for_load
+	session = next((s for s in sessions if s['session_id'] == session_id), None)
 	
-	# Handle session loading
-	if 'selected_session_for_load' in st.session_state:
-		session_id = st.session_state.selected_session_for_load
-		session = next((s for s in sessions if s['session_id'] == session_id), None)
+	if session:
+		# Load session using service layer
+		session_data = load_session_data(session_id)
 		
-		if session:
-			# Load this session
-			st.session_state.session_id = session['session_id']
-			session_dir = f"data/sessions/{session['session_id']}"
+		if session_data:
+			# Prepare session state data using UI service layer
+			state_data = prepare_session_state_data(
+				session_id,
+				session_data['molecules_df'],
+				session_data['metadata'].get('protein_content', ''),
+				session_data['metadata']
+			)
 			
-			# Load molecules DataFrame
-			molecules_df = load_molecules_dataframe(session_dir)
-			if molecules_df is not None:
-				st.session_state.molecules_df = molecules_df
+			# Update session state
+			st.session_state.session_id = state_data['session_id']
+			st.session_state.molecules_df = state_data['molecules_df']
+			st.session_state.protein_content = state_data['protein_content']
 			
-			# Load session metadata
-			metadata = load_session_metadata(session_dir)
-			if metadata:
-				st.session_state.protein_content = metadata.get('protein_content', '')
+			# Handle success using UI service layer
+			success_response = handle_loading_success(
+				session_id,
+				session['protein_name'],
+				state_data['num_molecules'],
+				state_data['num_graded'],
+				session['created_date']
+			)
 			
-			st.success(f"✅ Loaded session: {session['protein_name']}")
+			# Display success UI
+			st.success(success_response['message'])
+			
+			# Show next steps
+			st.markdown("### Next Steps:")
+			for step in success_response['next_steps']:
+				st.write(f"• {step}")
 			
 			# Navigation buttons
 			st.markdown("### Navigate to:")
@@ -486,178 +466,200 @@ def load_existing_session():
 			with nav_col2:
 				if st.button("📊 View Results", type="secondary", key="nav_results_loaded"):
 					st.switch_page("pages/4_📊_Results.py")
+		else:
+			# Handle error using UI service layer
+			error_response = handle_loading_error(
+				session_id, "Session data could not be loaded", session['protein_name']
+			)
 			
-			# Clear the selection flag
-			del st.session_state.selected_session_for_load
-			st.stop()
-	
-	# Handle reprocessing configuration
-	if 'selected_session_for_reprocess' in st.session_state:
-		session_id = st.session_state.selected_session_for_reprocess
-		session = next((s for s in sessions if s['session_id'] == session_id), None)
+			st.error(error_response['message'])
+			st.write("**Suggestions:**")
+			for suggestion in error_response['suggestions']:
+				st.write(f"• {suggestion}")
 		
-		if session:
-			# Load session data for reprocessing
-			session_dir = f"data/sessions/{session['session_id']}"
-			molecules_df = load_molecules_dataframe(session_dir)
-			metadata = load_session_metadata(session_dir)
-			
-			st.markdown("---")
-			st.subheader(f"🔄 Reprocess: {session['protein_name']}")
-			st.info("Recalculate molecular fingerprints, interaction fingerprints, and pose quality metrics with new settings.")
-			
-			# Current configuration display
-			with st.expander("📋 Current Configuration", expanded=False):
-				current_col1, current_col2, current_col3 = st.columns(3)
-				with current_col1:
-					st.write(f"**Interaction Type:** {metadata.get('interaction_type', 'Unknown')}")
-				with current_col2:
-					st.write(f"**Pose Quality:** {'✅' if metadata.get('compute_pose_quality', False) else '❌'}")
-				with current_col3:
-					st.write(f"**Molecules:** {session['num_molecules']}")
-			
-			# Reprocessing configuration
-			st.markdown("#### New Processing Settings")
-			reprocess_col1, reprocess_col2, reprocess_col3 = st.columns(3)
-			
-			with reprocess_col1:
-				reprocess_interaction_type = st.selectbox(
-					"Interaction Analysis",
-					options=["plip", "prolif"],
-					index=0 if metadata.get('interaction_type', 'plip') == 'plip' else 1,
-					help="PLIP: Fast protein-ligand interaction analysis\nProLIF: Comprehensive interaction fingerprints",
-					key="reprocess_interaction"
+		# Clear the selection flag
+		del st.session_state.selected_session_for_load
+		st.stop()
+
+
+def render_current_configuration(metadata: dict, session: dict):
+	"""Render current session configuration display."""
+	with st.expander("📋 Current Configuration", expanded=False):
+		current_col1, current_col2, current_col3 = st.columns(3)
+		with current_col1:
+			st.write(f"**Interaction Type:** {metadata.get('interaction_type', 'Unknown')}")
+		with current_col2:
+			st.write(f"**Pose Quality:** {'✅' if metadata.get('compute_pose_quality', False) else '❌'}")
+		with current_col3:
+			st.write(f"**Molecules:** {session['num_molecules']}")
+
+
+def render_reprocessing_configuration(metadata: dict):
+	"""Render reprocessing configuration UI. Returns configuration values."""
+	st.markdown("#### New Processing Settings")
+	reprocess_col1, reprocess_col2, reprocess_col3 = st.columns(3)
+	
+	with reprocess_col1:
+		reprocess_interaction_type = st.selectbox(
+			"Interaction Analysis",
+			options=["plip", "prolif"],
+			index=0 if metadata.get('interaction_type', 'plip') == 'plip' else 1,
+			help="PLIP: Fast protein-ligand interaction analysis\nProLIF: Comprehensive interaction fingerprints",
+			key="reprocess_interaction"
+		)
+	
+	with reprocess_col2:
+		reprocess_molecular_fp_types = st.multiselect(
+			"Molecular Fingerprints",
+			options=["morgan", "rdkit", "mapchiral"],
+			default=["morgan", "rdkit", "mapchiral"],
+			help="Select molecular fingerprint types to compute",
+			key="reprocess_molecular_fps"
+		)
+	
+	with reprocess_col3:
+		reprocess_pose_quality = st.checkbox(
+			"Pose Quality Metrics",
+			value=metadata.get('compute_pose_quality', True),
+			help="Calculate clash detection and strain energy",
+			key="reprocess_pose_quality"
+		)
+	
+	return reprocess_interaction_type, reprocess_molecular_fp_types, reprocess_pose_quality
+
+
+def handle_reprocessing_execution(
+	session: dict, session_data: dict,
+	molecular_fp_types: list, interaction_type: str, compute_pose_quality: bool
+):
+	"""Handle the reprocessing execution using service layer."""
+	st.subheader("🔄 Reprocessing Molecules")
+	st.info(f"🧬 Using **{interaction_type.upper()}** interaction analysis")
+	st.warning("⚠️ This will overwrite existing fingerprint and interaction data. User grades will be preserved.")
+	
+	with st.spinner("Reprocessing molecules..."):
+		# Execute reprocessing using business logic service layer
+		result = execute_reprocessing_pipeline(
+			session_data, molecular_fp_types, interaction_type, compute_pose_quality
+		)
+	
+	if result['success']:
+		# Handle success using UI service layer
+		success_response = handle_reprocessing_success(
+			result['session_id'],
+			result['molecules_count'],
+			result['preserved_grades']
+		)
+		
+		# Update session state
+		st.session_state.molecules_df = result['molecules_df']
+		st.session_state.protein_content = result['protein_content']
+		st.session_state.session_id = result['session_id']
+		
+		# Display success UI
+		st.success(success_response['message'])
+		
+		# Show debug information
+		if result.get('debug_info'):
+			with st.expander("Debug Information"):
+				for debug_line in result['debug_info']:
+					st.write(debug_line)
+		
+		# Show next steps
+		st.markdown("### Next Steps:")
+		for step in success_response['next_steps']:
+			st.write(f"• {step}")
+	else:
+		# Handle error
+		st.error(f"❌ Reprocessing failed: {result['error']}")
+		
+		if result.get('exception_details'):
+			with st.expander("Error Details"):
+				st.code(result['exception_details'])
+	
+	# Clear reprocess selection and refresh
+	del st.session_state.selected_session_for_reprocess
+	st.rerun()
+
+
+def handle_reprocessing_interface(sessions: list):
+	"""Handle the reprocessing interface using service layer."""
+	session_id = st.session_state.selected_session_for_reprocess
+	session = next((s for s in sessions if s['session_id'] == session_id), None)
+	
+	if session:
+		# Load session data using service layer
+		session_data = load_session_data(session_id)
+		
+		if not session_data:
+			st.error(f"❌ Failed to load session data for: {session['protein_name']}")
+			del st.session_state.selected_session_for_reprocess
+			return
+		
+		st.markdown("---")
+		st.subheader(f"🔄 Reprocess: {session['protein_name']}")
+		st.info("Recalculate molecular fingerprints, interaction fingerprints, and pose quality metrics with new settings.")
+		
+		# Display current configuration
+		render_current_configuration(session_data['metadata'], session)
+		
+		# Reprocessing configuration
+		reprocess_interaction_type, reprocess_molecular_fp_types, reprocess_pose_quality = render_reprocessing_configuration(session_data['metadata'])
+		
+		# Action buttons
+		st.markdown("#### Actions")
+		action_col1, action_col2, action_col3 = st.columns(3)
+		
+		with action_col1:
+			if st.button("🔄 Start Reprocessing", type="primary", 
+						disabled=not reprocess_molecular_fp_types,
+						key="start_reprocess", use_container_width=True):
+				
+				handle_reprocessing_execution(
+					session, session_data,
+					reprocess_molecular_fp_types, reprocess_interaction_type, reprocess_pose_quality
 				)
-			
-			with reprocess_col2:
-				reprocess_molecular_fp_types = st.multiselect(
-					"Molecular Fingerprints",
-					options=["morgan", "rdkit", "mapchiral"],
-					default=["morgan", "rdkit", "mapchiral"],
-					help="Select molecular fingerprint types to compute",
-					key="reprocess_molecular_fps"
-				)
-			
-			with reprocess_col3:
-				reprocess_pose_quality = st.checkbox(
-					"Pose Quality Metrics",
-					value=metadata.get('compute_pose_quality', True),
-					help="Calculate clash detection and strain energy",
-					key="reprocess_pose_quality"
-				)
-			
-			# Action buttons
-			st.markdown("#### Actions")
-			action_col1, action_col2, action_col3 = st.columns(3)
-			
-			with action_col1:
-				if st.button("🔄 Start Reprocessing", type="primary", 
-							disabled=not reprocess_molecular_fp_types,
-							key="start_reprocess", use_container_width=True):
-					
-					# Create processing configurations
-					fp_config = create_default_fingerprint_config()
-					fp_config['compute_morgan'] = 'morgan' in reprocess_molecular_fp_types
-					fp_config['compute_rdkit'] = 'rdkit' in reprocess_molecular_fp_types
-					fp_config['compute_mapchiral'] = 'mapchiral' in reprocess_molecular_fp_types
-					
-					interaction_config = create_default_interaction_config()
-					interaction_config['interaction_type'] = reprocess_interaction_type
-					
-					pose_config = create_default_posecheck_config()
-					pose_config['calculate_clashes'] = reprocess_pose_quality
-					pose_config['calculate_strain'] = reprocess_pose_quality
-					
-					st.subheader("🔄 Reprocessing Molecules")
-					st.info(f"🧬 Using **{reprocess_interaction_type.upper()}** interaction analysis")
-					st.warning("⚠️ This will overwrite existing fingerprint and interaction data. User grades will be preserved.")
-					
-					# Clear computed columns to force recalculation
-					reprocess_df = molecules_df.copy()
-					computed_columns = ['morgan_fp', 'rdkit_fp', 'mapchiral_fp', 'interaction_fp', 
-										'interactions', 'num_interactions', 'clashes', 'strain_energy',
-										'prediction', 'prediction_uncertainty', 'prediction_timestamp']
-					
-					# Debug: Show what columns exist before clearing
-					st.write("**Debug - Before clearing:**")
-					st.write(f"DataFrame columns: {list(reprocess_df.columns)}")
-					st.write(f"Morgan FP sample: {type(reprocess_df['morgan_fp'].iloc[0] if 'morgan_fp' in reprocess_df.columns and len(reprocess_df) > 0 else 'N/A')}")
-					
-					for col in computed_columns:
-						if col in reprocess_df.columns:
-							if col not in ['grade', 'grade_timestamp']:
-								reprocess_df[col] = None
-					
-					# Debug: Show configuration
-					st.write("**Debug - Processing configuration:**")
-					st.write(f"Morgan: {'morgan' in reprocess_molecular_fp_types}")
-					st.write(f"RDKit: {'rdkit' in reprocess_molecular_fp_types}")  
-					st.write(f"MapChiral: {'mapchiral' in reprocess_molecular_fp_types}")
-					st.write(f"Interaction type: {reprocess_interaction_type}")
-					st.write(f"Pose quality: {reprocess_pose_quality}")
-					
-					# Reprocess through complete pipeline
-					processed_df = process_molecules_pipeline(
-						reprocess_df, metadata['protein_content'], 
-						fp_config, interaction_config, pose_config
-					)
-					
-					# Debug: Show what was computed
-					st.write("**Debug - After processing:**")
-					if len(processed_df) > 0:
-						sample_row = processed_df.iloc[0]
-						st.write(f"Morgan FP computed: {sample_row.get('morgan_fp') is not None}")
-						st.write(f"RDKit FP computed: {sample_row.get('rdkit_fp') is not None}")
-						st.write(f"MapChiral FP computed: {sample_row.get('mapchiral_fp') is not None}")
-						st.write(f"Interaction FP computed: {sample_row.get('interaction_fp') is not None}")
-						
-						# Show fingerprint statistics
-						fp_stats = get_fingerprint_statistics(processed_df)
-						st.write("**Fingerprint Statistics:**")
-						st.write(f"Morgan: {fp_stats.get('morgan_fp_percentage', 0):.1f}%")
-						st.write(f"RDKit: {fp_stats.get('rdkit_fp_percentage', 0):.1f}%")
-						st.write(f"MapChiral: {fp_stats.get('mapchiral_fp_percentage', 0):.1f}%")
-						st.write(f"Interaction: {fp_stats.get('interaction_fp_percentage', 0):.1f}%")
-					
-					# Save reprocessed data
-					save_molecules_dataframe(processed_df, session_dir)
-					
-					# Update session metadata
-					updated_metadata = metadata.copy()
-					updated_metadata.update({
-						'interaction_type': reprocess_interaction_type,
-						'compute_pose_quality': reprocess_pose_quality,
-						'last_reprocessed': datetime.now().isoformat(),
-						'molecular_fingerprints': reprocess_molecular_fp_types
-					})
-					save_session_metadata(session_dir, updated_metadata)
-					
-					# Update session state
-					st.session_state.molecules_df = processed_df
-					st.session_state.protein_content = metadata['protein_content']
-					st.session_state.session_id = session['session_id']
-					
-					st.success("✅ Data reprocessing completed!")
-					
-					# Clear reprocess selection and show navigation
-					del st.session_state.selected_session_for_reprocess
-					st.rerun()
-			
-			with action_col2:
-				if st.button("❌ Cancel", type="secondary", key="cancel_reprocess", use_container_width=True):
-					del st.session_state.selected_session_for_reprocess
-					st.rerun()
-			
-			with action_col3:
-				if st.button("📂 Load Session", type="secondary", key="load_from_reprocess", use_container_width=True):
-					# Load the session normally
-					st.session_state.session_id = session['session_id']
-					st.session_state.molecules_df = molecules_df
-					st.session_state.protein_content = metadata.get('protein_content', '')
-					
-					del st.session_state.selected_session_for_reprocess
-					st.success(f"✅ Loaded session: {session['protein_name']}")
-					st.rerun()
+		
+		with action_col2:
+			if st.button("❌ Cancel", type="secondary", key="cancel_reprocess", use_container_width=True):
+				del st.session_state.selected_session_for_reprocess
+				st.rerun()
+		
+		with action_col3:
+			if st.button("📂 Load Session", type="secondary", key="load_from_reprocess", use_container_width=True):
+				# Load the session normally using service layer
+				st.session_state.session_id = session['session_id']
+				st.session_state.molecules_df = session_data['molecules_df']
+				st.session_state.protein_content = session_data['metadata'].get('protein_content', '')
+				
+				del st.session_state.selected_session_for_reprocess
+				st.success(f"✅ Loaded session: {session['protein_name']}")
+				st.rerun()
+
+
+def load_existing_session():
+	"""Handle loading an existing session using service layer."""
+	st.subheader("📂 Load Existing Session")
+	
+	# Get sessions using service layer
+	sessions = get_existing_sessions()
+	
+	if not sessions:
+		st.info("No existing sessions found. Create a new session to get started.")
+		return
+	
+	st.markdown(f"Found **{len(sessions)}** existing sessions:")
+	
+	# Render session list
+	render_session_list(sessions)
+	
+	# Handle session loading
+	if 'selected_session_for_load' in st.session_state:
+		handle_session_loading(sessions)
+	
+	# Handle reprocessing interface
+	if 'selected_session_for_reprocess' in st.session_state:
+		handle_reprocessing_interface(sessions)
 
 
 def main():

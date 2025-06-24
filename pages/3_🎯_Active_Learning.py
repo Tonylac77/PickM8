@@ -29,6 +29,20 @@ from core.active_learning import (
     encode_grades_for_training, get_training_statistics,
     predict_with_uncertainty
 )
+from core.active_learning.business_logic import (
+    execute_model_training_pipeline,
+    execute_molecule_suggestion,
+    validate_grading_action,
+    calculate_grading_progress,
+    prepare_molecule_navigation
+)
+from core.ui.active_learning import (
+    prepare_training_diagnostics,
+    prepare_training_success_response,
+    prepare_training_error_response,
+    prepare_molecule_suggestion_data,
+    prepare_grading_interface_data
+)
 from utils.visualization import MoleculeVisualizer
 
 # Configure logging - INFO level to reduce noise
@@ -408,6 +422,93 @@ def train_model_interface(df: pd.DataFrame, session_dir: str):
     return df
 
 
+def train_model_interface_refactored(df: pd.DataFrame, session_dir: str):
+    """Interface for training ML model using business logic service layer."""
+    
+    # Execute training pipeline using business logic
+    with st.spinner("Training machine learning model..."):
+        result = execute_model_training_pipeline(df, session_dir)
+    
+    if result['success']:
+        # Handle success using UI service layer
+        success_response = prepare_training_success_response(
+            result['training_stats'],
+            result['prediction_stats'],
+            result['total_predictions']
+        )
+        
+        # Save updated DataFrame
+        save_molecules_dataframe(result['updated_df'], session_dir)
+        
+        # Display success UI
+        st.success(success_response['message'])
+        
+        # Show training statistics
+        if success_response['show_statistics']:
+            with st.expander("📊 Training Statistics", expanded=False):
+                st.json(result['training_stats'])
+                st.json(result['prediction_stats'])
+        
+        # Show next steps
+        st.markdown("### Next Steps:")
+        for step in success_response['next_steps']:
+            st.write(f"• {step}")
+        
+        # Update session state
+        st.session_state.has_predictions = True
+        
+        return result['updated_df']
+    
+    else:
+        # Handle error using UI service layer
+        graded_df = get_graded_molecules(df)
+        
+        # Prepare diagnostics for certain error types
+        diagnostics = None
+        if result['error_type'] == 'no_features':
+            diagnostics = prepare_training_diagnostics(graded_df)
+        
+        error_response = prepare_training_error_response(
+            result['error'],
+            result.get('graded_count', len(graded_df)),
+            diagnostics
+        )
+        
+        # Store error in session state so it persists
+        st.session_state.training_error = {
+            'message': error_response['message'],
+            'traceback': result.get('exception_details', 'No additional details'),
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        # Display error UI
+        st.error(error_response['message'])
+        
+        # Show diagnostic information if available
+        if error_response['show_diagnostics'] and diagnostics:
+            with st.expander("🔍 Diagnostic Information", expanded=True):
+                st.write("**Graded Molecules Fingerprint Status:**")
+                
+                if diagnostics['fingerprint_status']:
+                    st.dataframe(pd.DataFrame(diagnostics['fingerprint_status']), use_container_width=True)
+                
+                st.markdown("**Recommendations:**")
+                for rec in diagnostics['recommendations']:
+                    st.write(f"• {rec}")
+        
+        # Show suggestions
+        st.markdown("### Suggestions:")
+        for suggestion in error_response['suggestions']:
+            st.write(f"• {suggestion}")
+        
+        # Show full error details for debugging if available
+        if result.get('exception_details'):
+            with st.expander("🔍 Full Error Details", expanded=False):
+                st.code(result['exception_details'])
+    
+    return df
+
+
 def main():
     """Main Active Learning interface."""
     st.title("🎯 Active Learning Interface")
@@ -508,7 +609,7 @@ def main():
                 del st.session_state.training_error
                 
             # Train the model
-            updated_molecules_df = train_model_interface(molecules_df, session_dir)
+            updated_molecules_df = train_model_interface_refactored(molecules_df, session_dir)
             
             # Only update and rerun if training was successful (no error stored)
             if 'training_error' not in st.session_state:
