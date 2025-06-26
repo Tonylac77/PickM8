@@ -8,8 +8,10 @@ import pandas as pd
 import numpy as np
 import json
 
-from data import ml_models
-from data.encodings import (
+from active_learning import ml_models
+from active_learning.ml_base import MLModelBase
+
+from active_learning.encodings import (
     encode_sequential, encode_nominal, encode_ordinal,
     decode_sequential, decode_nominal, decode_ordinal,
     SEQUENTIAL, NOMINAL, ORDINAL
@@ -219,14 +221,14 @@ class TestMLIntegration:
         # Create DataFrame with required columns for ML workflow
         np.random.seed(42)
         df = pd.DataFrame({
-            'id': [1, 2, 3, 4, 5, 6],
-            'morgan_fp': [np.random.randint(0, 2, 1024).tolist() for _ in range(6)],
-            'rdkit_fp': [np.random.randint(0, 2, 2048).tolist() for _ in range(6)],
-            'interaction_fp': [json.dumps(np.random.randint(0, 2, 512).tolist()) for _ in range(6)],
-            'grade': ['A', 'B', 'C', 'A', 'B', 'C'],
-            'prediction': [None] * 6,
-            'prediction_uncertainty': [None] * 6,
-            'prediction_timestamp': [None] * 6
+            'id': [1, 2, 3, 4, 5, 6, 7, 8, 9],
+            'morgan_fp': [np.random.randint(0, 2, 1024).tolist() for _ in range(9)],
+            'rdkit_fp': [np.random.randint(0, 2, 2048).tolist() for _ in range(9)],
+            'interaction_fp': [json.dumps(np.random.randint(0, 2, 512).tolist()) for _ in range(9)],
+            'grade': ['A', 'B', 'C', 'A', 'B', 'C', 'A', 'B', 'C'],
+            'prediction': [None] * 9,
+            'prediction_uncertainty': [None] * 9,
+            'prediction_timestamp': [None] * 9
         })
         
         # Test just sequential encoding to avoid complexity
@@ -277,6 +279,110 @@ class TestMLIntegration:
         assert np.all(np.isfinite(X))  # No NaN or inf values
         assert X.dtype in [np.float64, np.float32, np.int64, np.int32]  # Numeric features
 
+class TestAutoPartyIntegration:
+    """Test AutoParty ensemble model integration."""
+    
+    def create_realistic_dataframe(self, n_molecules=20, n_graded=10):
+        """Create realistic DataFrame with molecular features and grades."""
+        np.random.seed(42)
+        
+        data = {
+            'id': list(range(n_molecules)),
+            'name': [f'mol_{i}' for i in range(n_molecules)],
+            'score': np.random.uniform(-10, 0, n_molecules),
+            'morgan_fp': [np.random.randint(0, 2, 1024).tolist() for _ in range(n_molecules)],
+            'rdkit_fp': [np.random.randint(0, 2, 2048).tolist() for _ in range(n_molecules)],
+            'interaction_fp': [json.dumps(np.random.randint(0, 2, 512).tolist()) for _ in range(n_molecules)],
+            'grade': [None] * n_molecules
+        }
+        
+        df = pd.DataFrame(data)
+        
+        # Add realistic grades to first n_graded molecules
+        if n_graded > 0:
+            grades = ['A', 'B', 'C']
+            grade_counts = [n_graded // 3, n_graded // 3, n_graded - 2 * (n_graded // 3)]
+            grade_list = []
+            for grade, count in zip(grades, grade_counts):
+                grade_list.extend([grade] * count)
+            
+            df.loc[:n_graded-1, 'grade'] = grade_list
+        
+        return df
+    
+    def test_autoparty_model_training(self):
+        """Test AutoParty ensemble training."""
+        df = self.create_realistic_dataframe(n_molecules=30, n_graded=15)
+        
+        model_config = {
+            'model_type': 'AutoPartyEnsemble',
+            'encoding_type': ORDINAL,  # AutoParty works best with ordinal
+            'model_params': {
+                'committee_size': 3,
+                'n_neurons': 256,  # Smaller for testing
+                'hidden_layers': 1,
+                'dropout': 0.2
+            }
+        }
+        
+        model, metrics = ml_models.train_model(df, model_config)
+        
+        assert model is not None
+        assert isinstance(model, MLModelBase)
+        assert model.backend == 'pytorch'
+        assert metrics['model_type'] == 'AutoPartyEnsemble'
+        assert 0.0 <= metrics['accuracy'] <= 1.0
+    
+    def test_autoparty_uncertainty_estimation(self):
+        """Test AutoParty uncertainty estimation."""
+        df = self.create_realistic_dataframe(n_molecules=20, n_graded=10)
+        
+        model_config = {
+            'model_type': 'AutoPartyEnsemble',
+            'encoding_type': ORDINAL
+        }
+        
+        # Train model
+        model, metrics = ml_models.train_model(df, model_config)
+        
+        # Test uncertainty estimation
+        X, _ = ml_models.prepare_features_from_dataframe(df)
+        uncertainties = model.get_uncertainty(X)
+        
+        assert len(uncertainties) == len(X)
+        assert np.all(uncertainties >= 0)
+        assert np.all(uncertainties <= 1)
+        
+        # Check that uncertainty varies (not all same value)
+        assert len(np.unique(uncertainties)) > 1
+    
+    def test_autoparty_save_load(self):
+        """Test saving and loading AutoParty model."""
+        df = self.create_realistic_dataframe(n_molecules=20, n_graded=10)
+        
+        model_config = {
+            'model_type': 'AutoPartyEnsemble',
+            'encoding_type': ORDINAL
+        }
+        
+        # Train model
+        model, _ = ml_models.train_model(df, model_config)
+        
+        # Save model
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            model.save(tmp.name)
+            
+            # Create new model and load
+            new_model = ml_models.create_model('AutoPartyEnsemble')
+            new_model.load(tmp.name)
+            
+            # Test predictions are same
+            X, _ = ml_models.prepare_features_from_dataframe(df)
+            orig_pred = model.predict(X)
+            new_pred = new_model.predict(X)
+            
+            np.testing.assert_array_almost_equal(orig_pred, new_pred, decimal=5)
 
 if __name__ == '__main__':
     pytest.main([__file__])

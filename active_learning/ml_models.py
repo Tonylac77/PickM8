@@ -14,7 +14,11 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import accuracy_score
 from sklearn.calibration import CalibratedClassifierCV
 
-from data.encodings import (
+from active_learning.ml_base import MLModelBase
+from active_learning.sklearn_models import SklearnModelWrapper
+from active_learning.autoparty_models import AutoPartyEnsemble
+
+from active_learning.encodings import (
     encode_grades_for_training as encode_grades_with_type,
     decode_predictions,
     get_ml_strategy,
@@ -139,89 +143,82 @@ def load_encoding_config() -> Dict[str, Any]:
         return default_config
 
 def create_model(model_type: str, model_params: Optional[Dict[str, Any]] = None, 
-                use_calibration: bool = True) -> object:
+                use_calibration: bool = True) -> MLModelBase:
     """
-    Factory function to create sklearn models with proper configuration.
+    Factory function to create ML models with proper configuration.
+    Now returns MLModelBase instances that can be either sklearn or PyTorch based.
     
     Args:
-        model_type: Type of model ('RandomForest', 'GradientBoosting', 'SVM', 'GaussianProcess', 'MLP')
+        model_type: Type of model
         model_params: Model-specific parameters (uses config defaults if None)
         use_calibration: Whether to wrap model with calibration
         
     Returns:
-        Configured sklearn model
+        MLModelBase instance
     """
     if model_params is None:
         config = load_model_config()
         model_params = config.get(model_type, {})
     
-    # Create base model
-    if model_type == 'RandomForest':
-        model = RandomForestClassifier(**model_params)
-    elif model_type == 'GradientBoosting':
-        model = GradientBoostingClassifier(**model_params)
-    elif model_type == 'SVM':
-        # Ensure probability is enabled for uncertainty estimation
-        model_params = model_params.copy()
-        model_params['probability'] = True
-        model = SVC(**model_params)
-    elif model_type == 'GaussianProcess':
-        # Handle kernel specification
-        params = model_params.copy()
-        kernel_type = params.pop('kernel', 'RBF')
-        if kernel_type == 'RBF':
-            params['kernel'] = RBF()
-        elif kernel_type == 'Matern':
-            params['kernel'] = Matern()
-        model = GaussianProcessClassifier(**params)
-    elif model_type == 'MLP':
-        model = MLPClassifier(**model_params)
-    else:
-        raise ValueError(f"Unsupported model type: {model_type}")
+    # Create model configuration
+    model_config = {
+        'model_type': model_type,
+        'model_params': model_params,
+        'use_calibration': use_calibration
+    }
     
-    # Add calibration wrapper if requested and beneficial
-    if use_calibration and model_type in ['RandomForest', 'SVM', 'MLP']:
+    # Determine which backend to use
+    pytorch_models = ['AutoPartyEnsemble']
+    sklearn_models = ['RandomForest', 'GradientBoosting', 'SVM', 'GaussianProcess', 'MLP']
+    
+    if model_type in pytorch_models:
+        # Add additional PyTorch-specific config
         config = load_model_config()
-        calibration_method = config.get('calibration_method', 'isotonic')
-        calibration_cv = config.get('calibration_cv', 3)
-        model = CalibratedClassifierCV(model, method=calibration_method, cv=calibration_cv)
-    
-    return model
+        model_config.update({
+            'learning_rate': config.get('learning_rate', 1e-4),
+            'weight_decay': config.get('weight_decay', 1e-2),
+            'n_epochs': config.get('n_epochs', 100),
+            'batch_size': config.get('batch_size', 128)
+        })
+        
+        if model_type == 'AutoPartyEnsemble':
+            # Add AutoParty specific parameters
+            autoparty_defaults = config.get('AutoPartyEnsemble', {})
+            model_config.update({
+                'committee_size': autoparty_defaults.get('committee_size', 3),
+                'n_neurons': autoparty_defaults.get('n_neurons', 1024),
+                'hidden_layers': autoparty_defaults.get('hidden_layers', 2),
+                'dropout': autoparty_defaults.get('dropout', 0.2),
+                'data_split': autoparty_defaults.get('data_split', 'bootstrap')
+            })
+            return AutoPartyEnsemble(model_config)
+            
+    elif model_type in sklearn_models:
+        # Add calibration config if needed
+        if use_calibration:
+            config = load_model_config()
+            model_config.update({
+                'calibration_method': config.get('calibration_method', 'isotonic'),
+                'calibration_cv': config.get('calibration_cv', 3)
+            })
+        return SklearnModelWrapper(model_config)
+    else:
+        raise ValueError(f"Unsupported model type: {model_type}. "
+                        f"Supported types: {pytorch_models + sklearn_models}")
 
-def get_uncertainty_estimate(model: object, X: np.ndarray) -> np.ndarray:
+def get_uncertainty_estimate(model: MLModelBase, X: np.ndarray) -> np.ndarray:
     """
-    Get uncertainty estimates tailored to each model type.
+    Get uncertainty estimates from any model type.
     
     Args:
-        model: Trained sklearn model
+        model: Trained MLModelBase model
         X: Feature matrix
         
     Returns:
         Array of uncertainty estimates (higher = more uncertain)
     """
     try:
-        # For Gaussian Process, use native uncertainty
-        if hasattr(model, 'predict_proba') and isinstance(model, GaussianProcessClassifier):
-            try:
-                # GP can provide true uncertainty via standard deviation
-                _, std = model.predict(X, return_std=True)
-                return std
-            except:
-                # Fallback to probability-based uncertainty
-                probabilities = model.predict_proba(X)
-                return 1.0 - np.max(probabilities, axis=1)
-        
-        # For other models with predict_proba
-        elif hasattr(model, 'predict_proba'):
-            probabilities = model.predict_proba(X)
-            # Uncertainty = 1 - max probability (higher = more uncertain)
-            return 1.0 - np.max(probabilities, axis=1)
-        
-        else:
-            # Fallback for models without probability estimates
-            logger.warning("Model does not support uncertainty estimation, returning default values")
-            return np.ones(len(X)) * 0.5
-            
+        return model.get_uncertainty(X)
     except Exception as e:
         logger.error(f"Error computing uncertainty estimates: {e}")
         return np.ones(len(X)) * 0.5
@@ -296,7 +293,7 @@ def encode_grades_for_training(df: pd.DataFrame, encoding_type: Optional[str] = 
     # Use the new encoding function from encodings module
     return encode_grades_with_type(df, encoding_type)
 
-def train_model(df: pd.DataFrame, model_config: Optional[Dict[str, Any]] = None) -> Tuple[object, Dict[str, Any]]:
+def train_model(df: pd.DataFrame, model_config: Optional[Dict[str, Any]] = None) -> Tuple[MLModelBase, Dict[str, Any]]:
     """
     Train ML model on graded molecules with configurable model type and parameters.
     
@@ -319,7 +316,7 @@ def train_model(df: pd.DataFrame, model_config: Optional[Dict[str, Any]] = None)
     if len(X) == 0:
         raise ValueError("No valid features found for training")
     
-    # Get model configuration (use defaults if not provided for backward compatibility)
+# Get model configuration
     if model_config is None:
         logger.info("No model config provided, using defaults")
         model_type = 'RandomForest'
@@ -342,33 +339,31 @@ def train_model(df: pd.DataFrame, model_config: Optional[Dict[str, Any]] = None)
     
     # Create model using factory function
     try:
-        model = create_model(model_type, model_params, use_calibration=False)  # We'll handle calibration below
+        model = create_model(model_type, model_params, use_calibration)
     except Exception as e:
         logger.error(f"Error creating {model_type} model: {e}, falling back to RandomForest")
-        model = create_model('RandomForest', None, use_calibration=False)
+        model = create_model('RandomForest', None, use_calibration)
         model_type = 'RandomForest'
     
-    # Add calibration for uncertainty estimates if requested and beneficial
-    unique_classes = np.unique(y)
-    if use_calibration and len(unique_classes) > 1 and len(y) >= 15:
-        # Check if we have enough samples per class for cross-validation
-        class_counts = np.bincount(y)
-        min_class_count = np.min(class_counts)
-        if min_class_count >= 3:
-            config = load_model_config()
-            calibration_method = config.get('calibration_method', 'isotonic')
-            calibration_cv = config.get('calibration_cv', 3)
-            
-            # Only calibrate models that benefit from it (not GaussianProcess)
-            if model_type != 'GaussianProcess':
-                model = CalibratedClassifierCV(model, method=calibration_method, cv=calibration_cv)
-                logger.info(f"Added {calibration_method} calibration to {model_type} model")
+    # Add output_type to model config for AutoParty
+    if hasattr(model, 'model_config'):
+        model.model_config['output_type'] = 'ordinal' if encoding_type == ORDINAL else 'classes'
+        model.model_config['encoding_type'] = encoding_type
     
     # Train the model
     model.fit(X, y)
     
     # Calculate metrics
     y_pred = model.predict(X)
+    
+    # For ordinal encoding, convert back to class indices
+    if encoding_type == ORDINAL and len(y_pred.shape) > 1:
+        # Convert ordinal predictions to class indices
+        y_pred = np.sum(y_pred > 0.5, axis=1) - 1
+        y_pred = np.clip(y_pred, 0, len(label_mapping) - 1)
+    
+    # Calculate accuracy
+    from sklearn.metrics import accuracy_score
     accuracy = accuracy_score(y, y_pred)
     
     metrics = {
@@ -386,13 +381,13 @@ def train_model(df: pd.DataFrame, model_config: Optional[Dict[str, Any]] = None)
     
     return model, metrics
 
-def update_predictions(df: pd.DataFrame, model: object, metrics: Optional[Dict[str, Any]] = None) -> pd.DataFrame:
+def update_predictions(df: pd.DataFrame, model: MLModelBase, metrics: Optional[Dict[str, Any]] = None) -> pd.DataFrame:
     """
     Update DataFrame with ML predictions using enhanced uncertainty estimation.
     
     Args:
         df: Molecules DataFrame
-        model: Trained ML model
+        model: Trained MLModelBase model
         metrics: Training metrics containing encoding information
         
     Returns:
@@ -406,7 +401,7 @@ def update_predictions(df: pd.DataFrame, model: object, metrics: Optional[Dict[s
     if len(X) == 0:
         return df
     
-    # Get encoding information from metrics (backward compatibility)
+    # Get encoding information from metrics
     if metrics is not None:
         encoding_type = metrics.get('encoding_type', SEQUENTIAL)
         label_mapping = metrics.get('label_mapping', {})
@@ -419,18 +414,31 @@ def update_predictions(df: pd.DataFrame, model: object, metrics: Optional[Dict[s
     # Make predictions
     raw_predictions = model.predict(X)
     
-    # Decode predictions to grade strings if we have label mapping
+    # Handle different prediction formats based on encoding type
+    if encoding_type == ORDINAL and len(raw_predictions.shape) > 1:
+        # Convert ordinal predictions to class indices
+        pred_indices = np.sum(raw_predictions > 0.5, axis=1) - 1
+        pred_indices = np.clip(pred_indices, 0, len(label_mapping) - 1)
+    elif encoding_type == NOMINAL and len(raw_predictions.shape) > 1:
+        # Get class with highest probability
+        pred_indices = np.argmax(raw_predictions, axis=1)
+    else:
+        # Sequential or already converted
+        pred_indices = np.round(raw_predictions).astype(int)
+        pred_indices = np.clip(pred_indices, 0, len(label_mapping) - 1)
+    
+    # Decode predictions to grade strings
     if label_mapping:
         try:
-            grade_predictions = decode_predictions(raw_predictions, label_mapping, encoding_type)
+            grade_predictions = decode_predictions(pred_indices, label_mapping, encoding_type)
         except Exception as e:
             logger.error(f"Error decoding predictions: {e}, using raw predictions")
-            grade_predictions = [str(pred) for pred in raw_predictions]
+            grade_predictions = [str(pred) for pred in pred_indices]
     else:
-        grade_predictions = [str(pred) for pred in raw_predictions]
+        grade_predictions = [str(pred) for pred in pred_indices]
     
-    # Get uncertainty estimates using the enhanced function
-    uncertainties = get_uncertainty_estimate(model, X)
+    # Get uncertainty estimates
+    uncertainties = model.get_uncertainty(X)
     
     # Update DataFrame
     timestamp = pd.Timestamp.now()
