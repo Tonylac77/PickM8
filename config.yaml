@@ -15,12 +15,6 @@ fingerprinting:
   mapchiral_max_radius: 2
   mapchiral_n_permutations: 2048
   mapchiral_mapping: false
-  
-models:
-  default_type: "ensemble"
-  ensemble_size: 3
-  max_epochs: 100
-  learning_rate: 0.0001
 
 ml_models:
   default_type: "RandomForest"
@@ -54,6 +48,7 @@ ml_models:
     random_state: 42
     
   GaussianProcess:
+    alpha: 1e-10
     kernel: "RBF"
     n_restarts_optimizer: 0
     random_state: 42
