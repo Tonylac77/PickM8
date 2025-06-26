@@ -1,0 +1,20 @@
+[theme]
+# Base theme
+base = "dark"
+
+# Primary colors - green accent
+primaryColor = "#34AE53"
+
+# Background colors - dark theme inspired by Spotify
+backgroundColor = "#121212"
+secondaryBackgroundColor = "#1e1e1e"
+
+# Text color - light for contrast
+textColor = "#ffffff"
+
+# Font
+font = "sans serif"
+
+[server]
+# Optional: Configure server settings for better theming
+headless = true

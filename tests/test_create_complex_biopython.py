@@ -17,7 +17,7 @@ from rdkit import Chem
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from core.fingerprints.interactions.plip import create_complex_with_biopython
+from data.interactions import create_complex_with_biopython
 
 
 class TestCreateComplexWithBiopython:

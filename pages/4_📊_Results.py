@@ -12,28 +12,15 @@ from datetime import datetime
 from pathlib import Path
 import tempfile
 
-# Import new functional utilities
-from utils.data_processing import (
-    load_molecules_dataframe, load_session_metadata
-)
-from core.grading import (
-    get_graded_molecules, get_ungraded_molecules
-)
-from utils.export_utils import (
-    export_to_csv, export_to_sdf, export_graded_molecules_only,
-    export_predictions_summary, export_pose_quality_report,
-    export_interaction_analysis, create_export_package,
-    validate_export_data
-)
-from core.pose_analysis import get_pose_quality_statistics
-from core.active_learning import get_training_statistics
+# Import from new flat structure
+from data import sessions, molecules
+from analysis import grading, statistics
 
-st.set_page_config(page_title="Results - PickM8", page_icon="📊", layout="wide")
-
+st.set_page_config(page_title="Results - PickM8", page_icon="media/pickm8_white_logoonly.png", layout="wide")
 
 def create_grade_distribution_plots(df: pd.DataFrame):
     """Create grade distribution visualizations."""
-    graded_df = get_graded_molecules(df)
+    graded_df = grading.filter_and_sort_molecules(df, mode='graded')
     
     if len(graded_df) == 0:
         st.info("No grades available yet.")
@@ -77,7 +64,7 @@ def create_grade_distribution_plots(df: pd.DataFrame):
 
 def create_grading_progress_plot(df: pd.DataFrame):
     """Create grading progress over time plot."""
-    graded_df = get_graded_molecules(df)
+    graded_df = grading.filter_and_sort_molecules(df, mode='graded')
     
     if len(graded_df) == 0 or 'grade_timestamp' not in graded_df.columns:
         return
@@ -97,7 +84,7 @@ def create_grading_progress_plot(df: pd.DataFrame):
 
 def create_score_vs_grade_plot(df: pd.DataFrame):
     """Create score vs grade scatter plot."""
-    graded_df = get_graded_molecules(df)
+    graded_df = grading.filter_and_sort_molecules(df, mode='graded')
     
     if len(graded_df) == 0:
         return
@@ -175,7 +162,7 @@ def create_prediction_analysis_plots(df: pd.DataFrame):
 
 def create_active_learning_progression_plots(df: pd.DataFrame):
     """Create active learning progression visualizations."""
-    graded_df = get_graded_molecules(df)
+    graded_df = grading.filter_and_sort_molecules(df, mode='graded')
     
     if len(graded_df) == 0:
         st.info("No graded molecules available yet to analyze active learning progression.")
@@ -315,23 +302,16 @@ def display_summary_statistics(df: pd.DataFrame):
             st.metric("Clash-Free Poses", clash_free)
 
 
-def export_interface(df: pd.DataFrame, session_dir: str, session_name: str):
+def export_interface(df: pd.DataFrame, session_id: str, session_name: str):
     """Export interface for results."""
     st.subheader("📁 Export Results")
     
-    # Validate data before export
-    validation_issues = validate_export_data(df)
-    
-    if validation_issues['errors']:
-        st.error("Data validation errors found:")
-        for error in validation_issues['errors']:
-            st.error(f"• {error}")
+    # Basic validation
+    if df.empty:
+        st.error("No data to export")
         return
     
-    if validation_issues['warnings']:
-        st.warning("Data validation warnings:")
-        for warning in validation_issues['warnings']:
-            st.warning(f"• {warning}")
+    st.info(f"Ready to export {len(df)} molecules")
     
     col1, col2 = st.columns(2)
     
@@ -340,47 +320,39 @@ def export_interface(df: pd.DataFrame, session_dir: str, session_name: str):
         
         # CSV export
         if st.button("📄 Export All Data (CSV)", use_container_width=True):
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp:
-                export_to_csv(df, tmp.name, include_predictions=True, include_pose_metrics=True)
-                
-                with open(tmp.name, 'rb') as f:
-                    st.download_button(
-                        label="Download CSV",
-                        data=f.read(),
-                        file_name=f"{session_name}_complete.csv",
-                        mime="text/csv"
-                    )
+            csv_data = df.to_csv(index=False)
+            st.download_button(
+                label="Download CSV",
+                data=csv_data,
+                file_name=f"{session_name}_complete.csv",
+                mime="text/csv"
+            )
         
         # SDF export
         if st.button("🧪 Export Molecules (SDF)", use_container_width=True):
-            try:
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.sdf') as tmp:
-                    export_to_sdf(df, tmp.name, include_predictions=True, include_pose_metrics=True)
-                    
-                    with open(tmp.name, 'rb') as f:
-                        st.download_button(
-                            label="Download SDF",
-                            data=f.read(),
-                            file_name=f"{session_name}_complete.sdf",
-                            mime="chemical/x-mdl-sdfile"
-                        )
-            except Exception as e:
-                st.error(f"SDF export failed: {e}")
+            if 'mol_block' in df.columns:
+                sdf_data = "\n$$$$\n".join(df['mol_block'].fillna("")) + "\n$$$$\n"
+                st.download_button(
+                    label="Download SDF",
+                    data=sdf_data,
+                    file_name=f"{session_name}_complete.sdf",
+                    mime="chemical/x-mdl-sdfile"
+                )
+            else:
+                st.error("No molecular structure data available")
         
         # Graded molecules only
         graded_count = df['grade'].notna().sum()
         if graded_count > 0:
             if st.button(f"⭐ Export Graded Only ({graded_count} molecules)", use_container_width=True):
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp:
-                    export_graded_molecules_only(df, tmp.name, format="csv")
-                    
-                    with open(tmp.name, 'rb') as f:
-                        st.download_button(
-                            label="Download Graded CSV",
-                            data=f.read(),
-                            file_name=f"{session_name}_graded.csv",
-                            mime="text/csv"
-                        )
+                graded_df = grading.filter_and_sort_molecules(df, mode='graded')
+                csv_data = graded_df.to_csv(index=False)
+                st.download_button(
+                    label="Download Graded CSV",
+                    data=csv_data,
+                    file_name=f"{session_name}_graded.csv",
+                    mime="text/csv"
+                )
     
     with col2:
         st.markdown("#### Analysis Reports")
@@ -389,81 +361,87 @@ def export_interface(df: pd.DataFrame, session_dir: str, session_name: str):
         pred_count = df['prediction'].notna().sum()
         if pred_count > 0:
             if st.button(f"🤖 Predictions Summary ({pred_count} predictions)", use_container_width=True):
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp:
-                    export_predictions_summary(df, tmp.name)
-                    
-                    with open(tmp.name, 'rb') as f:
-                        st.download_button(
-                            label="Download Predictions Report",
-                            data=f.read(),
-                            file_name=f"{session_name}_predictions.csv",
-                            mime="text/csv"
-                        )
+                pred_df = df[df['prediction'].notna()][['name', 'score', 'prediction', 'prediction_uncertainty', 'grade']]
+                pred_df = pred_df.dropna(subset=['prediction'])
+                csv_data = pred_df.to_csv(index=False)
+                st.download_button(
+                    label="Download Predictions Report",
+                    data=csv_data,
+                    file_name=f"{session_name}_predictions.csv",
+                    mime="text/csv"
+                )
         
         # Pose quality report
         if 'clashes' in df.columns or 'strain_energy' in df.columns:
             if st.button("🏗️ Pose Quality Report", use_container_width=True):
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp:
-                    export_pose_quality_report(df, tmp.name)
-                    
-                    with open(tmp.name, 'rb') as f:
-                        st.download_button(
-                            label="Download Pose Quality Report",
-                            data=f.read(),
-                            file_name=f"{session_name}_pose_quality.csv",
-                            mime="text/csv"
-                        )
+                pose_cols = [col for col in ['name', 'clashes', 'strain_energy', 'posecheck_score'] if col in df.columns]
+                pose_df = df[pose_cols]
+                csv_data = pose_df.to_csv(index=False)
+                st.download_button(
+                    label="Download Pose Quality Report",
+                    data=csv_data,
+                    file_name=f"{session_name}_pose_quality.csv",
+                    mime="text/csv"
+                )
         
         # Interaction analysis
         interaction_count = df['interactions'].notna().sum()
         if interaction_count > 0:
             if st.button(f"🔗 Interaction Analysis ({interaction_count} molecules)", use_container_width=True):
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp:
-                    export_interaction_analysis(df, tmp.name)
-                    
-                    with open(tmp.name, 'rb') as f:
-                        st.download_button(
-                            label="Download Interaction Analysis",
-                            data=f.read(),
-                            file_name=f"{session_name}_interactions.csv",
-                            mime="text/csv"
-                        )
+                interaction_cols = [col for col in ['name', 'interactions', 'num_interactions'] if col in df.columns]
+                interaction_df = df[df['interactions'].notna()][interaction_cols]
+                csv_data = interaction_df.to_csv(index=False)
+                st.download_button(
+                    label="Download Interaction Analysis",
+                    data=csv_data,
+                    file_name=f"{session_name}_interactions.csv",
+                    mime="text/csv"
+                )
     
     st.divider()
     
     # Complete export package
     st.markdown("#### Complete Export Package")
     if st.button("📦 Create Complete Export Package", type="primary", use_container_width=True):
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            try:
-                create_export_package(df, tmp_dir, session_name)
-                
-                # Create ZIP archive
-                import zipfile
-                zip_path = f"{tmp_dir}/{session_name}_complete.zip"
-                
-                with zipfile.ZipFile(zip_path, 'w') as zipf:
-                    tmp_path = Path(tmp_dir)
-                    for file_path in tmp_path.glob("*"):
-                        if file_path.is_file() and not file_path.name.endswith('.zip'):
-                            zipf.write(file_path, file_path.name)
-                
-                with open(zip_path, 'rb') as f:
-                    st.download_button(
-                        label="Download Complete Package (ZIP)",
-                        data=f.read(),
-                        file_name=f"{session_name}_complete.zip",
-                        mime="application/zip"
-                    )
-                
-                st.success("✅ Export package created successfully!")
-                
-            except Exception as e:
-                st.error(f"Export package creation failed: {e}")
+        import zipfile
+        import io
+        
+        # Create ZIP in memory
+        zip_buffer = io.BytesIO()
+        
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            # Add main CSV
+            zipf.writestr(f"{session_name}_complete.csv", df.to_csv(index=False))
+            
+            # Add graded molecules if available
+            if df['grade'].notna().any():
+                graded_df = grading.filter_and_sort_molecules(df, mode='graded')
+                zipf.writestr(f"{session_name}_graded.csv", graded_df.to_csv(index=False))
+            
+            # Add predictions if available
+            if df['prediction'].notna().any():
+                pred_df = df[df['prediction'].notna()]
+                zipf.writestr(f"{session_name}_predictions.csv", pred_df.to_csv(index=False))
+        
+        st.download_button(
+            label="Download Complete Package (ZIP)",
+            data=zip_buffer.getvalue(),
+            file_name=f"{session_name}_complete.zip",
+            mime="application/zip"
+        )
+        
+        st.success("✅ Export package created successfully!")
 
 
 def main():
     """Main Results interface."""
+    # Add logo to app and sidebar
+    st.logo(
+        image="media/pickm8_white.png",
+        size="large",
+        icon_image="media/pickm8_white_logoonly.png"
+    )
+    
     st.title("📊 Results & Analysis")
     
     # Check session
@@ -473,22 +451,22 @@ def main():
             st.switch_page("main.py")
         return
     
-    session_dir = f"data/sessions/{st.session_state.session_id}"
+    session_id = st.session_state.session_id
     
     # Load data
-    molecules_df = load_molecules_dataframe(session_dir)
-    if molecules_df is None:
+    result = sessions.load_session(st.session_state.session_id)
+    if not result:
         st.error("No molecules loaded. Please upload data first.")
         return
     
-    session_metadata = load_session_metadata(session_dir)
+    molecules_df, session_metadata = result
     session_name = session_metadata.get('protein_name', 'pickm8_session') if session_metadata else 'pickm8_session'
     
     # Remove file extension if present
     if session_name.endswith('.pdb'):
         session_name = session_name[:-4]
     
-    # Navigation sidebar
+    # Add navigation to sidebar
     with st.sidebar:
         st.markdown("### Navigation")
         
@@ -528,13 +506,10 @@ def main():
             
             with col2:
                 # Training statistics
-                training_stats = get_training_statistics(molecules_df)
+                training_stats = grading.get_grading_statistics(molecules_df)
                 st.markdown("**Training Status:**")
-                st.write(f"**Graded:** {training_stats['graded_molecules']}/{training_stats['total_molecules']}")
+                st.write(f"**Graded:** {training_stats['graded_count']}/{training_stats['total_molecules']}")
                 st.write(f"**Progress:** {training_stats['grading_percentage']:.1f}%")
-                if training_stats.get('grade_distribution'):
-                    most_common = training_stats.get('most_common_grade', 'N/A')
-                    st.write(f"**Most Common Grade:** {most_common}")
                 
                 # Model status
                 if 'prediction' in molecules_df.columns and molecules_df['prediction'].notna().any():
@@ -578,7 +553,7 @@ def main():
             )
     
     with tab4:
-        export_interface(molecules_df, session_dir, session_name)
+        export_interface(molecules_df, session_id, session_name)
 
 
 if __name__ == "__main__":

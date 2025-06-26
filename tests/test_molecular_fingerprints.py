@@ -8,7 +8,8 @@ import numpy as np
 from unittest.mock import Mock, patch
 from rdkit import Chem
 
-from core.fingerprints.molecular import (
+from data import fingerprints
+from data.fingerprints import (
     compute_morgan_fingerprint,
     compute_rdkit_fingerprint,
     compute_mapchiral_fingerprint,
@@ -55,7 +56,7 @@ class TestMolecularFingerprints:
         assert isinstance(result, list)
         assert len(result) == 512
 
-    @patch('core.fingerprints.molecular.rdMolDescriptors.GetMorganFingerprintAsBitVect')
+    @patch('data.fingerprints.rdMolDescriptors.GetMorganFingerprintAsBitVect')
     def test_compute_morgan_fingerprint_error_handling(self, mock_get_fp):
         """Test error handling in Morgan fingerprint computation"""
         mol = self.create_test_molecule()
@@ -94,7 +95,7 @@ class TestMolecularFingerprints:
         assert isinstance(result, list)
         assert len(result) == 512
 
-    @patch('core.fingerprints.molecular.Chem.RDKFingerprint')
+    @patch('data.fingerprints.Chem.RDKFingerprint')
     def test_compute_rdkit_fingerprint_error_handling(self, mock_rdkit_fp):
         """Test error handling in RDKit fingerprint computation"""
         mol = self.create_test_molecule()
@@ -222,10 +223,10 @@ class TestMapChiralFingerprints:
         """Test MapChiral fingerprint with different availability states"""
         mol = self.create_test_molecule()
         
-        with patch('core.fingerprints.molecular.MAPCHIRAL_AVAILABLE', mapchiral_available):
+        with patch('data.fingerprints.MAPCHIRAL_AVAILABLE', mapchiral_available):
             if mapchiral_available:
                 # Mock the mapchiral_encode function
-                with patch('core.fingerprints.molecular.mapchiral_encode') as mock_encode:
+                with patch('data.fingerprints.mapchiral_encode') as mock_encode:
                     # Create a mock fingerprint array
                     mock_fp = np.array([1, 0, 1, 1, 0] * 409 + [1, 0, 1])  # 2048 bits
                     mock_encode.return_value = mock_fp
@@ -240,8 +241,7 @@ class TestMapChiralFingerprints:
                     mock_encode.assert_called_once_with(
                         mol, 
                         max_radius=2, 
-                        n_permutations=2048, 
-                        mapping=False
+                        n_permutations=2048
                     )
             else:
                 # Should return None when MapChiral not available
@@ -252,8 +252,8 @@ class TestMapChiralFingerprints:
         """Test MapChiral fingerprint with custom parameters"""
         mol = self.create_test_molecule()
         
-        with patch('core.fingerprints.molecular.MAPCHIRAL_AVAILABLE', True), \
-             patch('core.fingerprints.molecular.mapchiral_encode') as mock_encode:
+        with patch('data.fingerprints.MAPCHIRAL_AVAILABLE', True), \
+             patch('data.fingerprints.mapchiral_encode') as mock_encode:
             
             # Create a mock fingerprint array
             mock_fp = np.array([0, 1] * 512)  # 1024 bits
@@ -262,8 +262,7 @@ class TestMapChiralFingerprints:
             fp = compute_mapchiral_fingerprint(
                 mol,
                 max_radius=3,
-                n_permutations=1024,
-                mapping=True
+                n_permutations=1024
             )
             
             assert fp is not None
@@ -273,16 +272,15 @@ class TestMapChiralFingerprints:
             mock_encode.assert_called_once_with(
                 mol,
                 max_radius=3,
-                n_permutations=1024,
-                mapping=True
+                n_permutations=1024
             )
     
     def test_compute_mapchiral_fingerprint_with_chiral_molecules(self):
         """Test MapChiral fingerprint with actual chiral molecules"""  
         mol1, mol2 = self.create_chiral_molecules()
         
-        with patch('core.fingerprints.molecular.MAPCHIRAL_AVAILABLE', True), \
-             patch('core.fingerprints.molecular.mapchiral_encode') as mock_encode:
+        with patch('data.fingerprints.MAPCHIRAL_AVAILABLE', True), \
+             patch('data.fingerprints.mapchiral_encode') as mock_encode:
             
             # Mock different fingerprints for the two enantiomers
             mock_fp1 = np.array([1, 0, 1, 0] * 512)  # 2048 bits
@@ -311,8 +309,8 @@ class TestMapChiralFingerprints:
         """Test MapChiral fingerprint error handling"""
         mol = self.create_test_molecule()
         
-        with patch('core.fingerprints.molecular.MAPCHIRAL_AVAILABLE', True), \
-             patch('core.fingerprints.molecular.mapchiral_encode') as mock_encode:
+        with patch('data.fingerprints.MAPCHIRAL_AVAILABLE', True), \
+             patch('data.fingerprints.mapchiral_encode') as mock_encode:
             
             # Make the encode function raise an exception
             mock_encode.side_effect = Exception("Test error")
@@ -327,8 +325,8 @@ class TestMapChiralFingerprints:
         mol = self.create_test_molecule()
         
         # Test MapChiral fingerprint consistency (with mocking)
-        with patch('core.fingerprints.molecular.MAPCHIRAL_AVAILABLE', True), \
-             patch('core.fingerprints.molecular.mapchiral_encode') as mock_encode:
+        with patch('data.fingerprints.MAPCHIRAL_AVAILABLE', True), \
+             patch('data.fingerprints.mapchiral_encode') as mock_encode:
             
             mock_fp = np.array([1, 0] * 1024)
             mock_encode.return_value = mock_fp
@@ -341,8 +339,8 @@ class TestMapChiralFingerprints:
         """Test MapChiral fingerprint computation with default parameters"""
         mol = self.create_test_molecule()
         
-        with patch('core.fingerprints.molecular.MAPCHIRAL_AVAILABLE', True), \
-             patch('core.fingerprints.molecular.mapchiral_encode') as mock_encode:
+        with patch('data.fingerprints.MAPCHIRAL_AVAILABLE', True), \
+             patch('data.fingerprints.mapchiral_encode') as mock_encode:
             
             mock_fp = np.array([1, 0, 1, 0] * 512)  # 2048 bits
             mock_encode.return_value = mock_fp
@@ -356,8 +354,7 @@ class TestMapChiralFingerprints:
             mock_encode.assert_called_once_with(
                 mol,
                 max_radius=2,
-                n_permutations=2048,
-                mapping=False
+                n_permutations=2048
             )
 
 
