@@ -5,7 +5,8 @@ import logging
 from typing import Dict, Any
 
 # Import from new flat structure
-from data import sessions, molecules, ml_models
+from data import sessions, molecules
+from active_learning import ml_models
 from analysis import grading, statistics
 from ui_components import molecule_viewer, progress_displays, forms
 
