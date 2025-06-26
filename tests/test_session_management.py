@@ -8,10 +8,31 @@ import pandas as pd
 import numpy as np
 import tempfile
 import json
+import shutil
 from pathlib import Path
 
 from data import molecules, sessions
 from analysis import grading
+
+
+@pytest.fixture
+def test_session_cleanup():
+    """Fixture to track and cleanup test sessions."""
+    created_sessions = []
+    
+    def track_session(session_id):
+        created_sessions.append(session_id)
+        return session_id
+    
+    # Yield the tracking function
+    yield track_session
+    
+    # Cleanup after test
+    sessions_dir = Path("data/sessions")
+    for session_id in created_sessions:
+        session_path = sessions_dir / session_id
+        if session_path.exists():
+            shutil.rmtree(session_path)
 
 
 class TestSessionPersistence:
@@ -42,10 +63,10 @@ class TestSessionPersistence:
         
         return pd.DataFrame(data)
 
-    def test_session_save_and_load(self):
+    def test_session_save_and_load(self, test_session_cleanup):
         """Test saving and loading session data."""
         df = self.create_sample_session_data()
-        session_id = "test_session_123"
+        session_id = test_session_cleanup("test_session_123")
         metadata = {"test": "metadata"}
         
         # Test saving
@@ -227,7 +248,7 @@ class TestDataIntegrity:
         # Original should be unchanged
         pd.testing.assert_frame_equal(original_df, original_copy)
 
-    def test_session_metadata_preservation(self):
+    def test_session_metadata_preservation(self, test_session_cleanup):
         """Test that session metadata is properly preserved."""
         df = pd.DataFrame({
             'id': [1, 2],
@@ -242,7 +263,7 @@ class TestDataIntegrity:
             'num_molecules': 2
         }
         
-        session_id = "metadata_test_session"
+        session_id = test_session_cleanup("metadata_test_session")
         
         # Save with metadata
         success = sessions.save_session(session_id, df, metadata)
