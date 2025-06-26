@@ -24,6 +24,7 @@ dependencies:
   - pymol
   - scipy
   - xopen
+  - torch>=2.0.0
   - pip:
     - streamlit-molstar>=0.3.0
     - plip
