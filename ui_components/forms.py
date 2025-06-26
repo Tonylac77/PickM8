@@ -327,6 +327,57 @@ def render_mlp_params(defaults: Dict[str, Any]) -> Dict[str, Any]:
         'random_state': 42
     }
 
+def render_autoparty_params(defaults: Dict[str, Any]) -> Dict[str, Any]:
+    """Render AutoParty ensemble parameter form."""
+    with st.expander("AutoParty Ensemble Parameters"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            committee_size = st.number_input(
+                "Committee size", 
+                min_value=2, max_value=10, 
+                value=defaults.get('committee_size', 3),
+                help="Number of models in the ensemble"
+            )
+            n_neurons = st.number_input(
+                "Neurons per layer", 
+                min_value=128, max_value=4096, 
+                value=defaults.get('n_neurons', 1024),
+                step=128,
+                help="Number of neurons in each hidden layer"
+            )
+            hidden_layers = st.number_input(
+                "Hidden layers", 
+                min_value=1, max_value=5, 
+                value=defaults.get('hidden_layers', 2),
+                help="Number of hidden layers"
+            )
+        
+        with col2:
+            dropout = st.number_input(
+                "Dropout rate", 
+                min_value=0.0, max_value=0.5, 
+                value=defaults.get('dropout', 0.2),
+                step=0.05,
+                help="Dropout probability for regularization"
+            )
+            data_split = st.selectbox(
+                "Data split method", 
+                options=['bootstrap', 'full-split'],
+                index=['bootstrap', 'full-split'].index(defaults.get('data_split', 'bootstrap')),
+                help="How to split data among ensemble members"
+            )
+    
+    st.info("🤖 AutoParty uses an ensemble of neural networks with built-in uncertainty estimation")
+    
+    return {
+        'committee_size': int(committee_size),
+        'n_neurons': int(n_neurons),
+        'hidden_layers': int(hidden_layers),
+        'dropout': float(dropout),
+        'data_split': data_split
+    }
+
 def render_ml_model_options() -> Tuple[str, Dict[str, Any]]:
     """
     Render ML model selection and parameter configuration.
@@ -339,11 +390,11 @@ def render_ml_model_options() -> Tuple[str, Dict[str, Any]]:
     # Load configuration
     config = load_ml_config()
     
-    # Model type selection
+    # Model type selection - Add AutoPartyEnsemble
     model_type = st.selectbox(
         "Model Type",
-        options=['RandomForest', 'GradientBoosting', 'SVM', 'GaussianProcess', 'MLP'],
-        index=['RandomForest', 'GradientBoosting', 'SVM', 'GaussianProcess', 'MLP'].index(
+        options=['RandomForest', 'GradientBoosting', 'SVM', 'GaussianProcess', 'MLP', 'AutoPartyEnsemble'],
+        index=['RandomForest', 'GradientBoosting', 'SVM', 'GaussianProcess', 'MLP', 'AutoPartyEnsemble'].index(
             config.get('default_type', 'RandomForest')
         ),
         help="Select the machine learning algorithm to use for predictions"
@@ -363,6 +414,8 @@ def render_ml_model_options() -> Tuple[str, Dict[str, Any]]:
         model_params = render_gaussian_process_params(model_defaults)
     elif model_type == 'MLP':
         model_params = render_mlp_params(model_defaults)
+    elif model_type == 'AutoPartyEnsemble':
+        model_params = render_autoparty_params(model_defaults)
     else:
         model_params = model_defaults
     
@@ -370,7 +423,8 @@ def render_ml_model_options() -> Tuple[str, Dict[str, Any]]:
     use_calibration = st.checkbox(
         "Enable Probability Calibration",
         value=config.get('calibration_enabled', True),
-        help="Improve probability estimates for better uncertainty quantification"
+        help="Improve probability estimates for better uncertainty quantification",
+        disabled=(model_type == 'AutoPartyEnsemble')  # AutoParty has built-in uncertainty
     )
     
     return model_type, {
