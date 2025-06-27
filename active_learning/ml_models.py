@@ -223,21 +223,39 @@ def get_uncertainty_estimate(model: MLModelBase, X: np.ndarray) -> np.ndarray:
         logger.error(f"Error computing uncertainty estimates: {e}")
         return np.ones(len(X)) * 0.5
 
-def prepare_features_from_dataframe(df: pd.DataFrame) -> Tuple[np.ndarray, List[int]]:
+def prepare_features_from_dataframe(df: pd.DataFrame, 
+                                    use_morgan_fp: bool = True,
+                                    use_rdkit_fp: bool = True, 
+                                    use_interaction_fp: bool = True) -> Tuple[np.ndarray, List[int]]:
     """
     Extract feature matrix from molecules DataFrame for ML training/prediction.
     
     Args:
         df: Molecules DataFrame
+        use_morgan_fp: Include Morgan fingerprints
+        use_rdkit_fp: Include RDKit fingerprints
+        use_interaction_fp: Include interaction fingerprints
         
     Returns:
         Tuple of (feature_matrix, molecule_ids)
     """
     if len(df) == 0:
         return np.array([]), []
+    
+    # Ensure at least one fingerprint type is selected
+    if not (use_morgan_fp or use_rdkit_fp or use_interaction_fp):
+        raise ValueError("At least one fingerprint type must be selected")
         
-    # Get molecules with computed fingerprints
-    valid_mask = (df['morgan_fp'].notna()) & (df['interaction_fp'].notna())
+    # Build valid mask based on selected fingerprint types
+    valid_mask = pd.Series([True] * len(df), index=df.index)
+    
+    if use_morgan_fp:
+        valid_mask = valid_mask & df['morgan_fp'].notna()
+    if use_rdkit_fp:
+        valid_mask = valid_mask & df['rdkit_fp'].notna()
+    if use_interaction_fp:
+        valid_mask = valid_mask & df['interaction_fp'].notna()
+    
     valid_df = df[valid_mask].copy()
     
     if len(valid_df) == 0:
@@ -247,16 +265,14 @@ def prepare_features_from_dataframe(df: pd.DataFrame) -> Tuple[np.ndarray, List[
     for _, row in valid_df.iterrows():
         feature_vector = []
         
-        # Morgan fingerprint
-        if row['morgan_fp'] is not None:
+        # Conditionally add fingerprints based on selection
+        if use_morgan_fp and row['morgan_fp'] is not None:
             feature_vector.extend([int(x) for x in row['morgan_fp']])
         
-        # RDKit fingerprint  
-        if row['rdkit_fp'] is not None:
+        if use_rdkit_fp and row['rdkit_fp'] is not None:
             feature_vector.extend([int(x) for x in row['rdkit_fp']])
             
-        # Interaction fingerprint (convert JSON to numeric)
-        if row['interaction_fp'] is not None:
+        if use_interaction_fp and row['interaction_fp'] is not None:
             try:
                 ifp_data = json.loads(row['interaction_fp'])
                 if isinstance(ifp_data, list):
@@ -272,6 +288,13 @@ def prepare_features_from_dataframe(df: pd.DataFrame) -> Tuple[np.ndarray, List[
     if features:
         max_len = max(len(f) for f in features)
         features = [f + [0.0] * (max_len - len(f)) for f in features]
+    
+    selected_fps = []
+    if use_morgan_fp: selected_fps.append("Morgan")
+    if use_rdkit_fp: selected_fps.append("RDKit") 
+    if use_interaction_fp: selected_fps.append("Interaction")
+    
+    logger.info(f"Prepared features for {len(features)} molecules using fingerprints: {', '.join(selected_fps)}")
     
     return np.array(features), valid_df['id'].tolist()
 
@@ -293,13 +316,20 @@ def encode_grades_for_training(df: pd.DataFrame, encoding_type: Optional[str] = 
     # Use the new encoding function from encodings module
     return encode_grades_with_type(df, encoding_type)
 
-def train_model(df: pd.DataFrame, model_config: Optional[Dict[str, Any]] = None) -> Tuple[MLModelBase, Dict[str, Any]]:
+def train_model(df: pd.DataFrame, 
+                model_config: Optional[Dict[str, Any]] = None,
+                use_morgan_fp: bool = True,
+                use_rdkit_fp: bool = True,
+                use_interaction_fp: bool = True) -> Tuple[MLModelBase, Dict[str, Any]]:
     """
     Train ML model on graded molecules with configurable model type and parameters.
     
     Args:
         df: Molecules DataFrame with grades
         model_config: Configuration dict with model_type, model_params, use_calibration, encoding_type
+        use_morgan_fp: Include Morgan fingerprints
+        use_rdkit_fp: Include RDKit fingerprints  
+        use_interaction_fp: Include interaction fingerprints
         
     Returns:
         Tuple of (trained_model, metrics)
@@ -310,8 +340,8 @@ def train_model(df: pd.DataFrame, model_config: Optional[Dict[str, Any]] = None)
     if len(graded_df) < 3:
         raise ValueError("Need at least 3 graded molecules to train a model")
     
-    # Prepare features
-    X, _ = prepare_features_from_dataframe(graded_df)
+    # Prepare features with fingerprint selection
+    X, _ = prepare_features_from_dataframe(graded_df, use_morgan_fp, use_rdkit_fp, use_interaction_fp)
     
     if len(X) == 0:
         raise ValueError("No valid features found for training")
@@ -381,7 +411,12 @@ def train_model(df: pd.DataFrame, model_config: Optional[Dict[str, Any]] = None)
     
     return model, metrics
 
-def update_predictions(df: pd.DataFrame, model: MLModelBase, metrics: Optional[Dict[str, Any]] = None) -> pd.DataFrame:
+def update_predictions(df: pd.DataFrame, 
+                       model: MLModelBase, 
+                       metrics: Optional[Dict[str, Any]] = None,
+                       use_morgan_fp: bool = True,
+                       use_rdkit_fp: bool = True,
+                       use_interaction_fp: bool = True) -> pd.DataFrame:
     """
     Update DataFrame with ML predictions using enhanced uncertainty estimation.
     
@@ -389,14 +424,17 @@ def update_predictions(df: pd.DataFrame, model: MLModelBase, metrics: Optional[D
         df: Molecules DataFrame
         model: Trained MLModelBase model
         metrics: Training metrics containing encoding information
+        use_morgan_fp: Include Morgan fingerprints
+        use_rdkit_fp: Include RDKit fingerprints
+        use_interaction_fp: Include interaction fingerprints
         
     Returns:
         Updated DataFrame with predictions
     """
     df = df.copy()
     
-    # Prepare features for all molecules
-    X, mol_ids = prepare_features_from_dataframe(df)
+    # Prepare features for all molecules with fingerprint selection
+    X, mol_ids = prepare_features_from_dataframe(df, use_morgan_fp, use_rdkit_fp, use_interaction_fp)
     
     if len(X) == 0:
         return df
