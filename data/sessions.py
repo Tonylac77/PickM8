@@ -134,4 +134,11 @@ def list_sessions() -> List[Dict[str, Any]]:
                 logger.warning(f"Could not load metadata for session {session_dir.name}: {e}")
                 continue
 
-    return sorted(sessions, key=lambda x: x['created_date'], reverse=True)
+    # Sort sessions by created_date, handling None values by putting them at the end
+    def sort_key(session):
+        date = session['created_date']
+        if date is None:
+            return (1, '')  # None dates go last
+        return (0, date)
+    
+    return sorted(sessions, key=sort_key, reverse=True)

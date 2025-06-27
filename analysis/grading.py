@@ -144,3 +144,92 @@ def get_molecules_by_strategy(df: pd.DataFrame, strategy: str, metadata: Optiona
     sort_by = strategy_mapping.get(strategy, 'score')
     
     return filter_and_sort_molecules(df, mode='ungraded', sort_by=sort_by, metadata=metadata)
+
+def reset_all_grades(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Reset all grades and related data to None, preserving molecular fingerprints and pose quality.
+    
+    This function clears:
+    - Manual grades and timestamps
+    - ML predictions and uncertainty estimates
+    - All prediction-related metadata
+    
+    Preserves:
+    - Molecular fingerprints and structure data
+    - Pose quality metrics (clashes, strain energy)
+    - Protein-ligand interaction data
+    
+    Args:
+        df: Molecules DataFrame
+        
+    Returns:
+        DataFrame with all grades and predictions cleared
+    """
+    df = df.copy()
+    
+    # Track what we're resetting for better logging
+    grades_cleared = df['grade'].notna().sum() if 'grade' in df.columns else 0
+    predictions_cleared = df['prediction'].notna().sum() if 'prediction' in df.columns else 0
+    
+    # Clear grading data
+    if 'grade' in df.columns:
+        df['grade'] = None
+    if 'grade_timestamp' in df.columns:
+        df['grade_timestamp'] = None
+    
+    # Clear prediction data - handle all prediction-related columns robustly
+    prediction_columns = ['prediction', 'prediction_uncertainty', 'prediction_timestamp']
+    for col in prediction_columns:
+        if col in df.columns:
+            df[col] = None
+    
+    reset_count = len(df)
+    logger.info(f"Reset operation completed: {reset_count} molecules processed")
+    if grades_cleared > 0:
+        logger.info(f"  - Cleared {grades_cleared} manual grades")
+    if predictions_cleared > 0:
+        logger.info(f"  - Cleared {predictions_cleared} ML predictions")
+    
+    return df
+
+def cleanup_model_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Clean up model-related metadata while preserving essential session data.
+    
+    Removes:
+    - Model configuration (config.model_config)
+    - Label mapping from training
+    - Any other ML-specific metadata
+    
+    Preserves:
+    - Session identification and creation info
+    - Molecular data processing configuration
+    - Protein and ligand file information
+    
+    Args:
+        metadata: Session metadata dictionary
+        
+    Returns:
+        Cleaned metadata dictionary
+    """
+    metadata = metadata.copy()
+    
+    # Remove model-specific configuration
+    if 'config' in metadata and isinstance(metadata['config'], dict):
+        config = metadata['config'].copy()
+        if 'model_config' in config:
+            del config['model_config']
+            logger.info("Removed model_config from session metadata")
+        metadata['config'] = config
+    
+    # Remove label mapping
+    if 'label_mapping' in metadata:
+        del metadata['label_mapping']
+        logger.info("Removed label_mapping from session metadata")
+    
+    # Log what was preserved
+    essential_keys = ['session_id', 'protein_name', 'num_molecules', 'score_label', 'score_direction', 'created_date']
+    preserved_keys = [key for key in essential_keys if key in metadata]
+    logger.info(f"Preserved essential metadata keys: {preserved_keys}")
+    
+    return metadata

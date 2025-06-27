@@ -26,10 +26,13 @@ def main():
     st.title("🎯 Active Learning")
 
     # Check session
-    if 'session_id' not in st.session_state:
-        st.error("No session loaded")
-        if st.button("Go to Main"):
-            st.switch_page("main.py")
+    if 'session_id' not in st.session_state or 'molecules_df' not in st.session_state:
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("🏠 Go to Main Page", use_container_width=True, type="primary"):
+                st.switch_page("main.py")
+
+            st.info("💡 Create a new session or load an existing one from the main page to access active learning features.")
         return
 
     # Load current data
@@ -76,8 +79,11 @@ def render_sidebar_controls(df: pd.DataFrame):
         st.session_state.selection_strategy = default_strategy
     
     # Update strategy if model status changed
+    strategy_was_reset = False
     if st.session_state.selection_strategy not in strategies:
+        old_strategy = st.session_state.selection_strategy
         st.session_state.selection_strategy = default_strategy
+        strategy_was_reset = True
     
     # Strategy dropdown
     st.session_state.selection_strategy = st.selectbox(
@@ -86,9 +92,52 @@ def render_sidebar_controls(df: pd.DataFrame):
         index=strategies.index(st.session_state.selection_strategy) if st.session_state.selection_strategy in strategies else 0,
         help="Choose how molecules are selected for grading"
     )
+    
+    # Show strategy status info
+    if has_model:
+        st.info("🧠 **ML Model Available**: Using prediction-based selection strategies")
+    else:
+        st.info("📊 **No ML Model**: Using basic selection strategies. Train a model to unlock prediction-based options.")
 
     # ML Configuration
     st.subheader("🤖 Machine Learning")
+    
+    # Feature Selection
+    st.markdown("**🧬 Feature Selection**")
+    
+    # Initialize fingerprint selection in session state
+    if 'use_morgan_fp' not in st.session_state:
+        st.session_state.use_morgan_fp = True
+    if 'use_rdkit_fp' not in st.session_state:
+        st.session_state.use_rdkit_fp = True
+    if 'use_interaction_fp' not in st.session_state:
+        st.session_state.use_interaction_fp = True
+    
+    # Fingerprint selection checkboxes
+    col1, col2 = st.columns(2)
+    with col1:
+        st.session_state.use_morgan_fp = st.checkbox(
+            "Morgan FP", 
+            value=st.session_state.use_morgan_fp,
+            help="Circular molecular fingerprints"
+        )
+        st.session_state.use_rdkit_fp = st.checkbox(
+            "RDKit FP", 
+            value=st.session_state.use_rdkit_fp,
+            help="RDKit molecular fingerprints"
+        )
+    with col2:
+        st.session_state.use_interaction_fp = st.checkbox(
+            "Interaction FP", 
+            value=st.session_state.use_interaction_fp,
+            help="Protein-ligand interaction fingerprints"
+        )
+    
+    # Ensure at least one fingerprint is selected
+    if not (st.session_state.use_morgan_fp or st.session_state.use_rdkit_fp or st.session_state.use_interaction_fp):
+        st.error("⚠️ At least one fingerprint type must be selected")
+    
+    st.divider()
     
     # Get current model configuration
     metadata = st.session_state.get('metadata', {})
@@ -138,13 +187,29 @@ def render_sidebar_controls(df: pd.DataFrame):
         st.caption("❌ Probability calibration disabled")
     
     # Training buttons
-    if st.button("🚀 Train Model", disabled=stats['graded_count'] < 3, use_container_width=True):
+    fingerprint_disabled = not (st.session_state.use_morgan_fp or st.session_state.use_rdkit_fp or st.session_state.use_interaction_fp)
+    
+    if st.button("🚀 Train Model", 
+                 disabled=stats['graded_count'] < 3 or fingerprint_disabled, 
+                 use_container_width=True):
         train_model(df)
     
         # Show retrain with new config button if config changed but not yet applied
     has_model = grading.has_trained_model(df)
-    if has_model and st.button("🔄 Retrain with New Config", disabled=stats['graded_count'] < 3, use_container_width=True):
+    if has_model and st.button("🔄 Retrain with New Config", 
+                               disabled=stats['graded_count'] < 3 or fingerprint_disabled, 
+                               use_container_width=True):
         train_model_with_config_update(df)
+
+    # Reset grades section
+    st.divider()
+    st.subheader("🔄 Reset")
+    
+    if st.button("🗑️ Reset All Grades", 
+                 disabled=stats['graded_count'] == 0, 
+                 use_container_width=True,
+                 help="Clear all grades and predictions to start fresh"):
+        reset_grades(df)
 
     # Navigation
     st.divider()
@@ -300,11 +365,16 @@ def train_model(df: pd.DataFrame):
             config = metadata.get('config', {})
             model_config = config.get('model_config')
             
-            # Train model with configuration
-            model, metrics = ml_models.train_model(df, model_config)
+            # Get fingerprint selection from session state
+            use_morgan_fp = st.session_state.get('use_morgan_fp', True)
+            use_rdkit_fp = st.session_state.get('use_rdkit_fp', True)
+            use_interaction_fp = st.session_state.get('use_interaction_fp', True)
+            
+            # Train model with configuration and fingerprint selection
+            model, metrics = ml_models.train_model(df, model_config, use_morgan_fp, use_rdkit_fp, use_interaction_fp)
 
-            # Update predictions
-            df_updated = ml_models.update_predictions(df, model, metrics)
+            # Update predictions with fingerprint selection
+            df_updated = ml_models.update_predictions(df, model, metrics, use_morgan_fp, use_rdkit_fp, use_interaction_fp)
 
             # Store label mapping in metadata for prediction display
             if 'metadata' not in st.session_state:
@@ -343,17 +413,22 @@ def train_model_with_config_update(df: pd.DataFrame):
             config = metadata.get('config', {})
             model_config = config.get('model_config')
             
+            # Get fingerprint selection from session state
+            use_morgan_fp = st.session_state.get('use_morgan_fp', True)
+            use_rdkit_fp = st.session_state.get('use_rdkit_fp', True)
+            use_interaction_fp = st.session_state.get('use_interaction_fp', True)
+            
             # Clear existing predictions before retraining
             df_clear = df.copy()
             df_clear['prediction'] = None
             df_clear['prediction_uncertainty'] = None
             df_clear['prediction_timestamp'] = None
             
-            # Train model with new configuration
-            model, metrics = ml_models.train_model(df_clear, model_config)
+            # Train model with new configuration and fingerprint selection
+            model, metrics = ml_models.train_model(df_clear, model_config, use_morgan_fp, use_rdkit_fp, use_interaction_fp)
 
-            # Update predictions with new model
-            df_updated = ml_models.update_predictions(df_clear, model, metrics)
+            # Update predictions with new model and fingerprint selection
+            df_updated = ml_models.update_predictions(df_clear, model, metrics, use_morgan_fp, use_rdkit_fp, use_interaction_fp)
 
             # Store label mapping in metadata for prediction display
             if 'metadata' not in st.session_state:
@@ -383,6 +458,83 @@ def train_model_with_config_update(df: pd.DataFrame):
 
         except Exception as e:
             st.error(f"Model retraining failed: {str(e)}")
+
+def reset_grades(df: pd.DataFrame):
+    """Reset all grades with comprehensive session state cleanup and confirmation dialog."""
+    stats = grading.get_grading_statistics(df)
+    
+    # Use session state to track confirmation
+    if 'confirm_reset' not in st.session_state:
+        st.session_state.confirm_reset = False
+    
+    if not st.session_state.confirm_reset:
+        st.warning(f"⚠️ This will reset {stats['graded_count']} grades and all predictions. This action cannot be undone.")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("✅ Confirm Reset", use_container_width=True):
+                st.session_state.confirm_reset = True
+                st.rerun()
+        with col2:
+            if st.button("❌ Cancel", use_container_width=True):
+                st.rerun()
+    else:
+        # Perform the reset with error handling
+        try:
+            df_reset = grading.reset_all_grades(df)
+            st.session_state.molecules_df = df_reset
+            
+            # Comprehensive session state cleanup
+            _cleanup_session_state_after_reset()
+            
+            # Clean up model-related metadata while preserving essential session data
+            if 'metadata' in st.session_state:
+                st.session_state.metadata = grading.cleanup_model_metadata(st.session_state.metadata)
+            
+            # Save updated session
+            save_success = sessions.save_session(
+                st.session_state.session_id,
+                df_reset,
+                st.session_state.metadata
+            )
+            
+            if not save_success:
+                st.warning("⚠️ Reset completed but there was an issue saving the session. You may need to reload the page.")
+            
+            # Reset confirmation state
+            st.session_state.confirm_reset = False
+            
+            # Enhanced success message
+            reset_items = []
+            if stats['graded_count'] > 0:
+                reset_items.append(f"{stats['graded_count']} grades")
+            if 'prediction' in df.columns and df['prediction'].notna().any():
+                reset_items.append("all predictions")
+            if reset_items:
+                reset_summary = " and ".join(reset_items)
+                st.success(f"✅ Reset complete! Cleared {reset_summary}. Selection strategy reverted to basic options.")
+            else:
+                st.success("✅ Reset complete! No data to reset.")
+            st.rerun()
+            
+        except Exception as e:
+            # Reset confirmation state even on error
+            st.session_state.confirm_reset = False
+            st.error(f"❌ Reset failed: {str(e)}")
+            st.error("Please try again or reload the page if the issue persists.")
+            logger.error(f"Reset operation failed: {e}", exc_info=True)
+
+
+def _cleanup_session_state_after_reset():
+    """Clean up session state variables after grade reset."""
+    # Reset molecule navigation
+    if 'current_idx' in st.session_state:
+        st.session_state.current_idx = 0
+    
+    # Reset selection strategy to default (will be handled automatically by UI logic)
+    # but we can ensure it's cleared here to force re-evaluation
+    if 'selection_strategy' in st.session_state:
+        # Don't delete it, let the UI logic handle the reset to appropriate default
+        pass
 
 if __name__ == "__main__":
     main()
