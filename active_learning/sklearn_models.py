@@ -37,34 +37,35 @@ class SklearnModelWrapper(MLModelBase):
             model_config.get('use_calibration', True)
         )
         
+
     def _create_sklearn_model(self, model_type: str, model_params: Dict[str, Any], 
                               use_calibration: bool) -> object:
         """Create sklearn model based on type and parameters."""
-        # Create base model
-        if model_type == 'RandomForest':
-            base_model = RandomForestClassifier(**model_params)
-        elif model_type == 'GradientBoosting':
-            base_model = GradientBoostingClassifier(**model_params)
-        elif model_type == 'SVM':
-            # Ensure probability is enabled
-            model_params = model_params.copy()
-            model_params['probability'] = True
-            base_model = SVC(**model_params)
-        elif model_type == 'GaussianProcess':
-            # Handle kernel specification
-            params = model_params.copy()
-            kernel_type = params.pop('kernel', 'RBF')
-            if kernel_type == 'RBF':
-                params['kernel'] = RBF()
-            elif kernel_type == 'Matern':
-                params['kernel'] = Matern()
-            base_model = GaussianProcessClassifier(**params)
-        elif model_type == 'MLP':
-            base_model = MLPClassifier(**model_params)
+        if 'model' in self.model_config:
+            base_model = self.model_config['model']
         else:
-            raise ValueError(f"Unsupported sklearn model type: {model_type}")
+            # Create base model
+            if model_type == 'RandomForest':
+                base_model = RandomForestClassifier(**model_params)
+            elif model_type == 'GradientBoosting':
+                base_model = GradientBoostingClassifier(**model_params)
+            elif model_type == 'SVM':
+                model_params = model_params.copy()
+                model_params['probability'] = True
+                base_model = SVC(**model_params)
+            elif model_type == 'GaussianProcess':
+                params = model_params.copy()
+                kernel_type = params.pop('kernel', 'RBF')
+                if kernel_type == 'RBF':
+                    params['kernel'] = RBF()
+                elif kernel_type == 'Matern':
+                    params['kernel'] = Matern()
+                base_model = GaussianProcessClassifier(**params)
+            elif model_type == 'MLP':
+                base_model = MLPClassifier(**model_params)
+            else:
+                raise ValueError(f"Unsupported sklearn model type: {model_type}")
         
-        # Add calibration if requested and beneficial
         if use_calibration and model_type in ['RandomForest', 'SVM', 'MLP']:
             calibration_method = self.model_config.get('calibration_method', 'isotonic')
             calibration_cv = self.model_config.get('calibration_cv', 3)
