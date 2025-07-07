@@ -134,7 +134,7 @@ class MoleculeVisualizer:
             prediction_value = mol_data['prediction']
             
             # Handle both legacy numeric predictions and new grade string predictions
-            if isinstance(prediction_value, str) and prediction_value in ['A', 'B', 'C', 'D', 'F']:
+            if isinstance(prediction_value, str) and prediction_value in ['A', 'B', 'C', 'D']:
                 # New system: prediction is already a grade string
                 prediction_display = prediction_value
             else:
@@ -156,7 +156,7 @@ class MoleculeVisualizer:
             # Prediction with color coding
             
             grade_colors = {
-                'A': '🟢', 'B': '🔵', 'C': '🟡', 'D': '🟠', 'F': '🔴'
+                'A': '🟢', 'B': '🔵', 'C': '🟡', 'D': '🟠'
             }
             icon = grade_colors.get(str(prediction_display), '⚪')
             
