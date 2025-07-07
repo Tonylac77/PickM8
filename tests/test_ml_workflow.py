@@ -39,8 +39,8 @@ class TestMLPipeline:
         
         # Add realistic grades to first n_graded molecules
         if n_graded > 0:
-            grades = ['A', 'B', 'C']
-            grade_counts = [n_graded // 3, n_graded // 3, n_graded - 2 * (n_graded // 3)]
+            grades = ['A', 'B', 'C', 'D']
+            grade_counts = [n_graded // 4, n_graded // 4, n_graded // 4, n_graded - 3 * (n_graded // 4)]
             grade_list = []
             for grade, count in zip(grades, grade_counts):
                 grade_list.extend([grade] * count)
@@ -89,7 +89,7 @@ class TestMLPipeline:
         # Verify prediction values are reasonable
         for pred in predictions:
             assert isinstance(pred, str)
-            assert pred in ['A', 'B', 'C']
+            assert pred in ['A', 'B', 'C', 'D']
 
     def test_insufficient_training_data_error(self):
         """Test error handling with insufficient training data."""
@@ -253,7 +253,7 @@ class TestMLIntegration:
         
         # Verify predictions are valid grades
         for pred in predictions:
-            assert pred in ['A', 'B', 'C']
+            assert pred in ['A', 'B', 'C', 'D']
 
     def test_feature_extraction_integration(self):
         """Test feature extraction from DataFrame works correctly."""
@@ -300,8 +300,8 @@ class TestAutoPartyIntegration:
         
         # Add realistic grades to first n_graded molecules
         if n_graded > 0:
-            grades = ['A', 'B', 'C']
-            grade_counts = [n_graded // 3, n_graded // 3, n_graded - 2 * (n_graded // 3)]
+            grades = ['A', 'B', 'C', 'D']
+            grade_counts = [n_graded // 4, n_graded // 4, n_graded // 4, n_graded - 3 * (n_graded // 4)]
             grade_list = []
             for grade, count in zip(grades, grade_counts):
                 grade_list.extend([grade] * count)

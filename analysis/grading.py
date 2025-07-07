@@ -105,8 +105,8 @@ def filter_and_sort_molecules(
         if len(predictions) > 0:
             # Check if predictions are grade strings (new system)
             sample_pred = predictions.iloc[0]
-            if isinstance(sample_pred, str) and sample_pred in ['A', 'B', 'C', 'D', 'F']:
-                # New system: predictions are grade strings, sort alphabetically (A < B < C < D < F)
+            if isinstance(sample_pred, str) and sample_pred in ['A', 'B', 'C', 'D']:
+                # New system: predictions are grade strings, sort alphabetically (A < B < C < D)
                 filtered_df = filtered_df.sort_values('prediction', ascending=True, na_position='last')
             else:
                 # Legacy system: predictions are numeric (lower values = better grades)

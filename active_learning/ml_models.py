@@ -111,7 +111,7 @@ def load_encoding_config() -> Dict[str, Any]:
     # Fallback defaults if config not found (ensures backward compatibility)
     default_config = {
         'type': SEQUENTIAL,
-        'default_grades': ['A', 'B', 'C', 'D', 'F']
+        'default_grades': ['A', 'B', 'C', 'D']
     }
     
     try:

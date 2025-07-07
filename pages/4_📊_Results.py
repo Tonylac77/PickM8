@@ -42,8 +42,7 @@ def create_grade_distribution_plots(df: pd.DataFrame):
                 'A': '#2E8B57',  # SeaGreen
                 'B': '#1E90FF',  # DodgerBlue
                 'C': '#FFD700',  # Gold
-                'D': '#FF8C00',  # DarkOrange
-                'F': '#DC143C'   # Crimson
+                'D': '#FF8C00'   # DarkOrange
             }
         )
         fig_bar.update_layout(showlegend=False)
@@ -56,7 +55,7 @@ def create_grade_distribution_plots(df: pd.DataFrame):
             color='grade',
             color_discrete_map={
                 'A': '#2E8B57', 'B': '#1E90FF', 'C': '#FFD700',
-                'D': '#FF8C00', 'F': '#DC143C'
+                'D': '#FF8C00'
             }
         )
         st.plotly_chart(fig_pie, use_container_width=True)
@@ -178,7 +177,7 @@ def create_active_learning_progression_plots(df: pd.DataFrame):
     graded_df_sorted['grading_order'] = range(1, len(graded_df_sorted) + 1)
     
     # Create grade encoding for numerical analysis
-    grade_to_score = {'A': 5, 'B': 4, 'C': 3, 'D': 2, 'F': 1}
+    grade_to_score = {'A': 4, 'B': 3, 'C': 2, 'D': 1}
     graded_df_sorted['grade_numeric'] = graded_df_sorted['grade'].map(grade_to_score)
     
     col1, col2 = st.columns(2)
@@ -198,7 +197,7 @@ def create_active_learning_progression_plots(df: pd.DataFrame):
             },
             color_discrete_map={
                 'A': '#2E8B57', 'B': '#1E90FF', 'C': '#FFD700',
-                'D': '#FF8C00', 'F': '#DC143C'
+                'D': '#FF8C00'
             }
         )
         

@@ -41,13 +41,16 @@ def main():
 
     # Add controls to sidebar
     with st.sidebar:
-        render_sidebar_controls(df)
+        render_sidebar_controls()
 
     # Main content
     render_grading_interface(df, metadata)
 
-def render_sidebar_controls(df: pd.DataFrame):
+def render_sidebar_controls():
     """Render sidebar controls."""
+
+    df = st.session_state.molecules_df
+
     st.subheader("🎛️ Controls")
 
     # Progress metrics
@@ -76,6 +79,9 @@ def render_sidebar_controls(df: pd.DataFrame):
     
     # Initialize selection strategy in session state
     if 'selection_strategy' not in st.session_state:
+        st.session_state.selection_strategy = default_strategy
+    
+    if st.session_state.selection_strategy not in strategies:
         st.session_state.selection_strategy = default_strategy
     
     # Update strategy if model status changed
@@ -260,12 +266,11 @@ def render_grading_interface(df: pd.DataFrame, metadata: Dict[str, Any]):
         'A': {'color': '#28a745', 'desc': 'Excellent', 'emoji': '⭐'},
         'B': {'color': '#6f42c1', 'desc': 'Good', 'emoji': '👍'},
         'C': {'color': '#fd7e14', 'desc': 'Fair', 'emoji': '👌'},
-        'D': {'color': '#dc3545', 'desc': 'Poor', 'emoji': '👎'},
-        'F': {'color': '#6c757d', 'desc': 'Fail', 'emoji': '❌'}
+        'D': {'color': '#dc3545', 'desc': 'Poor', 'emoji': '👎'}
     }
 
-    # Single row with 8 columns for perfect alignment
-    ctrl_cols = st.columns(8, gap="small")
+    # Single row with 7 columns for perfect alignment
+    ctrl_cols = st.columns(7, gap="small")
     
     # Previous button
     with ctrl_cols[0]:
@@ -276,7 +281,7 @@ def render_grading_interface(df: pd.DataFrame, metadata: Dict[str, Any]):
             st.session_state.current_idx -= 1
             st.rerun()
     
-    # Grade buttons (columns 1-5)
+    # Grade buttons (columns 1-4)
     for i, (grade, info) in enumerate(grade_info.items()):
         with ctrl_cols[i + 1]:
             # Individual grade button styling
@@ -313,7 +318,7 @@ def render_grading_interface(df: pd.DataFrame, metadata: Dict[str, Any]):
                 st.rerun()
     
     # Next button
-    with ctrl_cols[6]:
+    with ctrl_cols[5]:
         if st.button("Next ➡️", 
                     disabled=st.session_state.current_idx >= len(filtered_df) - 1,
                     use_container_width=True,
@@ -322,7 +327,7 @@ def render_grading_interface(df: pd.DataFrame, metadata: Dict[str, Any]):
             st.rerun()
     
     # Progress indicator
-    with ctrl_cols[7]:
+    with ctrl_cols[6]:
         progress_pct = (st.session_state.current_idx + 1) / len(filtered_df)
         st.progress(progress_pct)
         remaining = len(filtered_df) - st.session_state.current_idx - 1
@@ -462,67 +467,50 @@ def train_model_with_config_update(df: pd.DataFrame):
 def reset_grades(df: pd.DataFrame):
     """Reset all grades with comprehensive session state cleanup and confirmation dialog."""
     stats = grading.get_grading_statistics(df)
-    
-    # Use session state to track confirmation
-    if 'confirm_reset' not in st.session_state:
-        st.session_state.confirm_reset = False
-    
-    if not st.session_state.confirm_reset:
-        st.warning(f"⚠️ This will reset {stats['graded_count']} grades and all predictions. This action cannot be undone.")
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("✅ Confirm Reset", use_container_width=True):
-                st.session_state.confirm_reset = True
-                st.rerun()
-        with col2:
-            if st.button("❌ Cancel", use_container_width=True):
-                st.rerun()
-    else:
-        # Perform the reset with error handling
-        try:
-            df_reset = grading.reset_all_grades(df)
-            st.session_state.molecules_df = df_reset
-            
-            # Comprehensive session state cleanup
-            _cleanup_session_state_after_reset()
-            
-            # Clean up model-related metadata while preserving essential session data
-            if 'metadata' in st.session_state:
-                st.session_state.metadata = grading.cleanup_model_metadata(st.session_state.metadata)
-            
-            # Save updated session
-            save_success = sessions.save_session(
-                st.session_state.session_id,
-                df_reset,
-                st.session_state.metadata
-            )
-            
-            if not save_success:
-                st.warning("⚠️ Reset completed but there was an issue saving the session. You may need to reload the page.")
-            
-            # Reset confirmation state
-            st.session_state.confirm_reset = False
-            
-            # Enhanced success message
-            reset_items = []
-            if stats['graded_count'] > 0:
-                reset_items.append(f"{stats['graded_count']} grades")
-            if 'prediction' in df.columns and df['prediction'].notna().any():
-                reset_items.append("all predictions")
-            if reset_items:
-                reset_summary = " and ".join(reset_items)
-                st.success(f"✅ Reset complete! Cleared {reset_summary}. Selection strategy reverted to basic options.")
-            else:
-                st.success("✅ Reset complete! No data to reset.")
-            st.rerun()
-            
-        except Exception as e:
-            # Reset confirmation state even on error
-            st.session_state.confirm_reset = False
-            st.error(f"❌ Reset failed: {str(e)}")
-            st.error("Please try again or reload the page if the issue persists.")
-            logger.error(f"Reset operation failed: {e}", exc_info=True)
+    try:
+        
+        # Reset grades in the dataframe
+        df_reset = grading.reset_all_grades(df)
+        
+        # Update session state
+        st.session_state.molecules_df = df_reset
+        
+        # Comprehensive session state cleanup
+        _cleanup_session_state_after_reset()
+        
+        # Clean up model-related metadata
+        if 'metadata' in st.session_state:
+            st.session_state.metadata = grading.cleanup_model_metadata(st.session_state.metadata)
+        
+        # Save the reset data
+        save_success = sessions.save_session(
+            st.session_state.session_id,
+            df_reset,
+            st.session_state.metadata
+        )
+        
+        # DEBUG: Verify saved data
+        if save_success:
+            result = sessions.load_session(st.session_state.session_id)
+            if result:
+                loaded_df, _ = result
 
+        # Reset confirmation state
+        st.session_state.confirm_reset = False
+        
+        # Success message
+        st.success("✅ Reset complete!")
+        
+        # Wait a bit to see debug output
+        import time
+        time.sleep(2)
+        
+        st.rerun()
+        
+    except Exception as e:
+        st.session_state.confirm_reset = False
+        st.error(f"❌ Reset failed: {str(e)}")
+        logger.error(f"Reset operation failed: {e}", exc_info=True)
 
 def _cleanup_session_state_after_reset():
     """Clean up session state variables after grade reset."""
@@ -530,11 +518,14 @@ def _cleanup_session_state_after_reset():
     if 'current_idx' in st.session_state:
         st.session_state.current_idx = 0
     
-    # Reset selection strategy to default (will be handled automatically by UI logic)
-    # but we can ensure it's cleared here to force re-evaluation
+    # Force strategy re-evaluation by removing it
     if 'selection_strategy' in st.session_state:
-        # Don't delete it, let the UI logic handle the reset to appropriate default
-        pass
+        del st.session_state.selection_strategy
+    
+    # Clear any cached model state
+    keys_to_clear = [k for k in st.session_state.keys() if k.startswith('model_') or k.startswith('prediction_')]
+    for key in keys_to_clear:
+        del st.session_state[key]
 
 if __name__ == "__main__":
     main()
