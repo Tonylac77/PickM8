@@ -453,8 +453,8 @@ def render_model_switcher(current_config: Dict[str, Any]) -> Tuple[str, Dict[str
     # Model type selection
     new_model_type = st.selectbox(
         "Model Type",
-        options=['RandomForest', 'GradientBoosting', 'SVM', 'GaussianProcess', 'MLP'],
-        index=['RandomForest', 'GradientBoosting', 'SVM', 'GaussianProcess', 'MLP'].index(current_model_type),
+        options=['RandomForest', 'GradientBoosting', 'SVM', 'GaussianProcess', 'MLP', 'AutoPartyEnsemble'],
+        index=['RandomForest', 'GradientBoosting', 'SVM', 'GaussianProcess', 'MLP', 'AutoPartyEnsemble'].index(current_model_type),
         help="Change the ML algorithm for predictions",
         key="model_switcher_type"
     )
@@ -479,6 +479,8 @@ def render_model_switcher(current_config: Dict[str, Any]) -> Tuple[str, Dict[str
         new_model_params = render_compact_gaussian_process_params(param_defaults)
     elif new_model_type == 'MLP':
         new_model_params = render_compact_mlp_params(param_defaults)
+    elif new_model_type == 'AutoPartyEnsemble':
+        new_model_params = render_compact_autoparty_params(param_defaults)
     else:
         new_model_params = param_defaults
     
@@ -487,8 +489,10 @@ def render_model_switcher(current_config: Dict[str, Any]) -> Tuple[str, Dict[str
         "Enable Probability Calibration",
         value=current_use_calibration,
         help="Improve probability estimates for uncertainty",
-        key="model_switcher_calibration"
+        key="model_switcher_calibration",
+        disabled=(new_model_type == 'AutoPartyEnsemble')  # AutoParty has built-in uncertainty
     )
+
     
     # Check if configuration changed
     config_changed = (
@@ -622,4 +626,34 @@ def render_compact_mlp_params(defaults: Dict[str, Any]) -> Dict[str, Any]:
         'activation': defaults.get('activation', 'relu'),
         'solver': defaults.get('solver', 'adam'),
         'random_state': 42
+    }
+
+def render_compact_autoparty_params(defaults: Dict[str, Any]) -> Dict[str, Any]:
+    """Render compact AutoParty parameter form for model switching."""
+    committee_size = st.slider(
+        "Committee Size", 
+        min_value=2, max_value=5, 
+        value=defaults.get('committee_size', 3),
+        help="Number of models in the ensemble"
+    )
+    n_neurons = st.select_slider(
+        "Neurons per Layer", 
+        options=[256, 512, 1024, 2048],
+        value=defaults.get('n_neurons', 1024),
+        help="Number of neurons in each hidden layer"
+    )
+    dropout = st.slider(
+        "Dropout Rate", 
+        min_value=0.1, max_value=0.5, 
+        value=defaults.get('dropout', 0.2),
+        step=0.05,
+        help="Dropout probability for regularization"
+    )
+    
+    return {
+        'committee_size': int(committee_size),
+        'n_neurons': int(n_neurons),
+        'hidden_layers': defaults.get('hidden_layers', 2),
+        'dropout': float(dropout),
+        'data_split': defaults.get('data_split', 'bootstrap')
     }
