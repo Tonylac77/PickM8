@@ -181,7 +181,7 @@ class AutoPartyEnsemble(PyTorchModelWrapper):
                         outputs = torch.sigmoid(outputs)
                         loss = F.binary_cross_entropy(outputs, batch_y)
                     else:
-                        # Use softmax for nominal encoding
+                        # Use softmax for one-hot encoding
                         outputs = F.log_softmax(outputs, dim=1)
                         loss = F.nll_loss(outputs, batch_y.argmax(dim=1))
                     
@@ -210,7 +210,7 @@ class AutoPartyEnsemble(PyTorchModelWrapper):
             # For ordinal, predictions are already sigmoid probabilities
             return mean_predictions
         else:
-            # For nominal, convert to probabilities
+            # For one-hot, convert to probabilities
             return self._softmax(mean_predictions)
     
     def get_uncertainty(self, X: np.ndarray) -> np.ndarray:
@@ -228,7 +228,7 @@ class AutoPartyEnsemble(PyTorchModelWrapper):
             variance = np.var(all_predictions, axis=0)
             uncertainty = np.mean(variance, axis=1)
         else:
-            # For nominal, use entropy of averaged predictions
+            # For one-hot, use entropy of averaged predictions
             mean_predictions = np.mean(all_predictions, axis=0)
             probs = self._softmax(mean_predictions)
             # Calculate entropy
