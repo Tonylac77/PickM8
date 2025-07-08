@@ -11,40 +11,43 @@ import numpy as np
 import pandas as pd
 from typing import List, Dict, Tuple, Callable, Union
 import logging
+from sklearn.preprocessing import KBinsDiscretizer
 
 logger = logging.getLogger(__name__)
 
 # Encoding type constants
 SEQUENTIAL = "sequential"
-NOMINAL = "nominal" 
+ONE_HOT = "one_hot" 
 ORDINAL = "ordinal"
+ORDINAL_REGRESSION = "ordinal_regression"
 
-VALID_ENCODING_TYPES = [SEQUENTIAL, NOMINAL, ORDINAL]
+VALID_ENCODING_TYPES = [SEQUENTIAL, ONE_HOT, ORDINAL, ORDINAL_REGRESSION]
 
 
 def encode_sequential(grades: List[str]) -> Tuple[np.ndarray, Dict[str, int]]:
     """
-    Encode grades using sequential numbering (current approach).
+    Encode grades using sequential numbering with reversed mapping (A=3, B=2, C=1, D=0).
     
     Args:
         grades: List of grade strings (e.g., ['A', 'B', 'C'])
         
     Returns:
         Tuple of (encoded_labels, label_mapping)
-        - encoded_labels: 1D array of integers [0, 1, 2, ...]
+        - encoded_labels: 1D array of integers [3, 2, 1, 0] for [A, B, C, D]
         - label_mapping: Dict mapping grade strings to integers
     """
     unique_grades = sorted(list(set(grades)))
-    label_mapping = {grade: idx for idx, grade in enumerate(unique_grades)}
+    # Reverse the mapping so A gets the highest value
+    label_mapping = {grade: len(unique_grades) - 1 - idx for idx, grade in enumerate(unique_grades)}
     encoded_labels = np.array([label_mapping[grade] for grade in grades])
     
-    logger.debug(f"Sequential encoding: {len(unique_grades)} unique grades -> {encoded_labels.shape}")
+    logger.debug(f"Sequential encoding (reversed): {len(unique_grades)} unique grades -> {encoded_labels.shape}")
     return encoded_labels, label_mapping
 
 
-def encode_nominal(grades: List[str]) -> Tuple[np.ndarray, Dict[str, int]]:
+def encode_one_hot(grades: List[str]) -> Tuple[np.ndarray, Dict[str, int]]:
     """
-    Encode grades using one-hot encoding (nominal).
+    Encode grades using one-hot encoding.
     
     Args:
         grades: List of grade strings (e.g., ['A', 'B', 'C'])
@@ -64,7 +67,47 @@ def encode_nominal(grades: List[str]) -> Tuple[np.ndarray, Dict[str, int]]:
         class_idx = label_mapping[grade]
         encoded_labels[i, class_idx] = 1
     
-    logger.debug(f"Nominal encoding: {len(unique_grades)} unique grades -> {encoded_labels.shape}")
+    logger.debug(f"One-hot encoding: {len(unique_grades)} unique grades -> {encoded_labels.shape}")
+    return encoded_labels, label_mapping
+
+
+def encode_ordinal_regression(grades: List[str]) -> Tuple[np.ndarray, Dict[str, int]]:
+    """
+    Encode grades using continuous values between 0 and 100 for regression.
+    
+    Args:
+        grades: List of grade strings (e.g., ['A', 'B', 'C'])
+        
+    Returns:
+        Tuple of (encoded_labels, label_mapping)
+        - encoded_labels: 1D array of continuous values [0-100]
+        - label_mapping: Dict mapping grade strings to continuous ranges
+    """
+    unique_grades = sorted(list(set(grades)))
+    
+    # Define grade to continuous value mapping
+    # D: 0-25, C: 25-50, B: 50-75, A: 75-100
+    grade_to_range = {
+        'D': (0, 25),
+        'C': (25, 50), 
+        'B': (50, 75),
+        'A': (75, 100)
+    }
+    
+    # Create mapping with midpoint values for training
+    label_mapping = {}
+    for grade in unique_grades:
+        if grade in grade_to_range:
+            low, high = grade_to_range[grade]
+            label_mapping[grade] = (low + high) / 2.0
+        else:
+            # Fallback for unexpected grades
+            idx = ord(grade) - ord('A')
+            label_mapping[grade] = 100 - (idx * 25)
+    
+    encoded_labels = np.array([label_mapping[grade] for grade in grades])
+    
+    logger.debug(f"Ordinal regression encoding: {len(unique_grades)} unique grades -> {encoded_labels.shape}")
     return encoded_labels, label_mapping
 
 
@@ -97,7 +140,7 @@ def encode_ordinal(grades: List[str]) -> Tuple[np.ndarray, Dict[str, int]]:
 
 def decode_sequential(predictions: np.ndarray, label_mapping: Dict[str, int]) -> List[str]:
     """
-    Decode sequential predictions back to grade strings.
+    Decode sequential predictions back to grade strings (handles reversed mapping).
     
     Args:
         predictions: 1D array of numeric predictions
@@ -109,16 +152,17 @@ def decode_sequential(predictions: np.ndarray, label_mapping: Dict[str, int]) ->
     reverse_mapping = {v: k for k, v in label_mapping.items()}
     
     # Round predictions to nearest integer and clip to valid range
-    pred_ints = np.clip(np.round(predictions).astype(int), 0, len(reverse_mapping) - 1)
-    decoded_grades = [reverse_mapping[pred_int] for pred_int in pred_ints]
+    max_val = max(label_mapping.values()) if label_mapping else 3
+    pred_ints = np.clip(np.round(predictions).astype(int), 0, max_val)
+    decoded_grades = [reverse_mapping.get(pred_int, 'D') for pred_int in pred_ints]
     
     logger.debug(f"Sequential decoding: {len(predictions)} predictions -> {len(decoded_grades)} grades")
     return decoded_grades
 
 
-def decode_nominal(predictions: np.ndarray, label_mapping: Dict[str, int]) -> List[str]:
+def decode_one_hot(predictions: np.ndarray, label_mapping: Dict[str, int]) -> List[str]:
     """
-    Decode nominal (one-hot) predictions back to grade strings.
+    Decode one-hot predictions back to grade strings.
     
     Args:
         predictions: 2D array of probability vectors
@@ -133,7 +177,42 @@ def decode_nominal(predictions: np.ndarray, label_mapping: Dict[str, int]) -> Li
     pred_classes = np.argmax(predictions, axis=1)
     decoded_grades = [reverse_mapping[pred_class] for pred_class in pred_classes]
     
-    logger.debug(f"Nominal decoding: {predictions.shape} predictions -> {len(decoded_grades)} grades")
+    logger.debug(f"One-hot decoding: {predictions.shape} predictions -> {len(decoded_grades)} grades")
+    return decoded_grades
+
+
+def decode_ordinal_regression(predictions: np.ndarray, label_mapping: Dict[str, int]) -> List[str]:
+    """
+    Decode continuous predictions back to grade strings using binning.
+    
+    Args:
+        predictions: 1D array of continuous predictions [0-100]
+        label_mapping: Original grade to continuous value mapping
+        
+    Returns:
+        List of predicted grade strings
+    """
+    # Define bins for continuous values
+    # 0-25→D, 25-50→C, 50-75→B, 75-100→A
+    bins = [0, 25, 50, 75, 100]
+    labels = ['D', 'C', 'B', 'A']
+    
+    # Clip predictions to valid range
+    predictions = np.clip(predictions, 0, 100)
+    
+    # Use KBinsDiscretizer approach but manually implement binning
+    decoded_grades = []
+    for pred in predictions:
+        if pred < 25:
+            decoded_grades.append('D')
+        elif pred < 50:
+            decoded_grades.append('C')
+        elif pred < 75:
+            decoded_grades.append('B')
+        else:
+            decoded_grades.append('A')
+    
+    logger.debug(f"Ordinal regression decoding: {len(predictions)} predictions -> {len(decoded_grades)} grades")
     return decoded_grades
 
 
@@ -165,8 +244,9 @@ def get_encoding_function(encoding_type: str) -> Callable:
     """Get the appropriate encoding function for the specified type."""
     encoding_functions = {
         SEQUENTIAL: encode_sequential,
-        NOMINAL: encode_nominal,
-        ORDINAL: encode_ordinal
+        ONE_HOT: encode_one_hot,
+        ORDINAL: encode_ordinal,
+        ORDINAL_REGRESSION: encode_ordinal_regression
     }
     
     if encoding_type not in encoding_functions:
@@ -179,8 +259,9 @@ def get_decoding_function(encoding_type: str) -> Callable:
     """Get the appropriate decoding function for the specified type."""
     decoding_functions = {
         SEQUENTIAL: decode_sequential,
-        NOMINAL: decode_nominal,
-        ORDINAL: decode_ordinal
+        ONE_HOT: decode_one_hot,
+        ORDINAL: decode_ordinal,
+        ORDINAL_REGRESSION: decode_ordinal_regression
     }
     
     if encoding_type not in decoding_functions:
@@ -197,9 +278,10 @@ def get_ml_strategy(encoding_type: str) -> str:
         String indicating the ML approach to use
     """
     ml_strategies = {
-        SEQUENTIAL: "regression",  # Can treat as regression or classification
-        NOMINAL: "multiclass",     # Multi-class classification
-        ORDINAL: "ordinal"         # Ordinal regression (or multi-output classification)
+        SEQUENTIAL: "classification",  # Can treat as regression or classification
+        ONE_HOT: "multiclass",         # Multi-class classification
+        ORDINAL: "ordinal",            # Ordinal regression (or multi-output classification)
+        ORDINAL_REGRESSION: "regression"  # Continuous regression
     }
     
     if encoding_type not in ml_strategies:
@@ -213,7 +295,7 @@ def calculate_uncertainty_score(predictions: np.ndarray, encoding_type: str) -> 
     Calculate uncertainty scores for active learning based on encoding type.
     
     Args:
-        predictions: Model predictions (1D for sequential, 2D for nominal/ordinal)
+        predictions: Model predictions (1D for sequential, 2D for one_hot/ordinal)
         encoding_type: Type of encoding used
         
     Returns:
@@ -221,11 +303,12 @@ def calculate_uncertainty_score(predictions: np.ndarray, encoding_type: str) -> 
     """
     if encoding_type == SEQUENTIAL:
         # For sequential, use absolute distance from integer values as uncertainty
+        # For reversed mapping, closer to grade boundaries = more uncertain
         rounded_preds = np.round(predictions)
         uncertainty = np.abs(predictions - rounded_preds)
         
-    elif encoding_type == NOMINAL:
-        # For nominal, use entropy of probability distribution
+    elif encoding_type == ONE_HOT:
+        # For one-hot, use entropy of probability distribution
         # Add small epsilon to avoid log(0)
         epsilon = 1e-10
         probs = predictions + epsilon
@@ -237,6 +320,15 @@ def calculate_uncertainty_score(predictions: np.ndarray, encoding_type: str) -> 
         # For ordinal, use variance of cumulative distribution
         # Higher variance indicates more uncertainty
         uncertainty = np.var(predictions, axis=1)
+        
+    elif encoding_type == ORDINAL_REGRESSION:
+        # For ordinal regression, use distance from bin centers as uncertainty
+        # Bin centers are at 12.5, 37.5, 62.5, 87.5
+        bin_centers = np.array([12.5, 37.5, 62.5, 87.5])
+        distances = np.abs(predictions[:, np.newaxis] - bin_centers)
+        min_distances = np.min(distances, axis=1)
+        # Normalize to [0, 1] range (max distance is 12.5)
+        uncertainty = min_distances / 12.5
         
     else:
         raise ValueError(f"Unknown encoding type: {encoding_type}. Valid types: {VALID_ENCODING_TYPES}")
@@ -265,10 +357,10 @@ def get_active_learning_ranking(predictions: np.ndarray, encoding_type: str,
         
     elif strategy == "best_predictions":
         if encoding_type == SEQUENTIAL:
-            # Sort by prediction ascending (best grades first: A=0, B=1, etc.)
-            ranking = np.argsort(predictions)
+            # Sort by prediction descending (best grades first: A=3, B=2, etc.)
+            ranking = np.argsort(-predictions)
             
-        elif encoding_type == NOMINAL:
+        elif encoding_type == ONE_HOT:
             # Sort by max probability descending (most confident predictions first)
             max_probs = np.max(predictions, axis=1)
             ranking = np.argsort(-max_probs)
@@ -276,7 +368,11 @@ def get_active_learning_ranking(predictions: np.ndarray, encoding_type: str,
         elif encoding_type == ORDINAL:
             # Convert ordinal to sequential-like score for ranking
             ordinal_scores = np.sum(predictions > 0.5, axis=1) - 1
-            ranking = np.argsort(ordinal_scores)
+            ranking = np.argsort(-ordinal_scores)
+            
+        elif encoding_type == ORDINAL_REGRESSION:
+            # Sort by continuous value descending (higher values = better grades)
+            ranking = np.argsort(-predictions)
             
         else:
             raise ValueError(f"Unknown encoding type: {encoding_type}")
