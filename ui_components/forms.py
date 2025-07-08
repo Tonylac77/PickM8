@@ -114,10 +114,8 @@ def load_ml_config() -> Dict[str, Any]:
         'default_type': 'RandomForest',
         'calibration_enabled': True,
         'RandomForest': {'n_estimators': 100, 'max_depth': None, 'min_samples_split': 2},
-        'GradientBoosting': {'n_estimators': 100, 'learning_rate': 0.1, 'max_depth': 3},
-        'SVM': {'C': 1.0, 'gamma': 'scale', 'kernel': 'rbf'},
         'GaussianProcess': {'kernel': 'RBF'},
-        'MLP': {'hidden_layer_sizes': [100], 'learning_rate': 'constant', 'alpha': 0.0001}
+        'LogisticAT': {'alpha': 1.0, 'max_iter': 1000}
     }
     
     try:
@@ -173,87 +171,6 @@ def render_random_forest_params(defaults: Dict[str, Any]) -> Dict[str, Any]:
         'n_jobs': -1
     }
 
-def render_gradient_boosting_params(defaults: Dict[str, Any]) -> Dict[str, Any]:
-    """Render GradientBoosting parameter form."""
-    with st.expander("Gradient Boosting Parameters"):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            n_estimators = st.number_input(
-                "Number of boosting stages", 
-                min_value=10, max_value=500, 
-                value=defaults.get('n_estimators', 100),
-                help="Number of boosting stages"
-            )
-            max_depth = st.number_input(
-                "Max depth", 
-                min_value=1, max_value=20, 
-                value=defaults.get('max_depth', 3),
-                help="Maximum depth of individual regression estimators"
-            )
-        
-        with col2:
-            learning_rate = st.number_input(
-                "Learning rate", 
-                min_value=0.01, max_value=1.0, 
-                value=defaults.get('learning_rate', 0.1),
-                step=0.01,
-                help="Learning rate shrinks the contribution of each tree"
-            )
-            subsample = st.number_input(
-                "Subsample", 
-                min_value=0.1, max_value=1.0, 
-                value=defaults.get('subsample', 1.0),
-                step=0.1,
-                help="Fraction of samples used for fitting trees"
-            )
-    
-    return {
-        'n_estimators': int(n_estimators),
-        'learning_rate': float(learning_rate),
-        'max_depth': int(max_depth),
-        'subsample': float(subsample),
-        'min_samples_split': defaults.get('min_samples_split', 2),
-        'min_samples_leaf': defaults.get('min_samples_leaf', 1),
-        'random_state': 42
-    }
-
-def render_svm_params(defaults: Dict[str, Any]) -> Dict[str, Any]:
-    """Render SVM parameter form."""
-    with st.expander("SVM Parameters"):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            C = st.number_input(
-                "Regularization parameter (C)", 
-                min_value=0.01, max_value=100.0, 
-                value=defaults.get('C', 1.0),
-                step=0.1,
-                help="Regularization parameter (smaller = more regularization)"
-            )
-            kernel = st.selectbox(
-                "Kernel", 
-                options=['rbf', 'linear', 'poly', 'sigmoid'],
-                index=['rbf', 'linear', 'poly', 'sigmoid'].index(defaults.get('kernel', 'rbf')),
-                help="Kernel type for SVM"
-            )
-        
-        with col2:
-            gamma = st.selectbox(
-                "Gamma", 
-                options=['scale', 'auto'],
-                index=['scale', 'auto'].index(defaults.get('gamma', 'scale')),
-                help="Kernel coefficient for rbf, poly and sigmoid"
-            )
-    
-    return {
-        'C': float(C),
-        'gamma': gamma,
-        'kernel': kernel,
-        'probability': True,  # Always enable for uncertainty
-        'random_state': 42
-    }
-
 def render_gaussian_process_params(defaults: Dict[str, Any]) -> Dict[str, Any]:
     """Render GaussianProcess parameter form."""
     with st.expander("Gaussian Process Parameters"):
@@ -283,99 +200,35 @@ def render_gaussian_process_params(defaults: Dict[str, Any]) -> Dict[str, Any]:
         'random_state': 42
     }
 
-def render_mlp_params(defaults: Dict[str, Any]) -> Dict[str, Any]:
-    """Render MLP parameter form."""
-    with st.expander("Neural Network (MLP) Parameters"):
+def render_logistic_at_params(defaults: Dict[str, Any]) -> Dict[str, Any]:
+    """Render LogisticAT ordinal regression parameter form."""
+    with st.expander("Ordinal Logistic Regression (LogisticAT) Parameters"):
         col1, col2 = st.columns(2)
         
         with col1:
-            hidden_size = st.number_input(
-                "Hidden layer size", 
-                min_value=10, max_value=500, 
-                value=defaults.get('hidden_layer_sizes', [100])[0],
-                help="Number of neurons in hidden layer"
-            )
             alpha = st.number_input(
-                "L2 penalty (alpha)", 
-                min_value=1e-6, max_value=1e-2, 
-                value=defaults.get('alpha', 0.0001),
-                format="%.6f",
-                help="L2 penalty (regularization) parameter"
+                "Regularization Strength (alpha)",
+                min_value=0.001,
+                max_value=100.0,
+                value=float(defaults.get('alpha', 1.0)),
+                step=0.1,
+                help="Regularization parameter to prevent overfitting"
             )
-        
+            
         with col2:
-            learning_rate = st.selectbox(
-                "Learning rate", 
-                options=['constant', 'invscaling', 'adaptive'],
-                index=['constant', 'invscaling', 'adaptive'].index(defaults.get('learning_rate', 'constant')),
-                help="Learning rate schedule for weight updates"
-            )
             max_iter = st.number_input(
-                "Max iterations", 
-                min_value=50, max_value=1000, 
-                value=defaults.get('max_iter', 200),
-                help="Maximum number of iterations"
+                "Maximum Iterations",
+                min_value=100,
+                max_value=5000,
+                value=int(defaults.get('max_iter', 1000)),
+                step=100,
+                help="Maximum number of iterations for convergence"
             )
     
     return {
-        'hidden_layer_sizes': [int(hidden_size)],
-        'learning_rate': learning_rate,
-        'alpha': float(alpha),
+        'alpha': alpha,
         'max_iter': int(max_iter),
-        'activation': defaults.get('activation', 'relu'),
-        'solver': defaults.get('solver', 'adam'),
         'random_state': 42
-    }
-
-def render_autoparty_params(defaults: Dict[str, Any]) -> Dict[str, Any]:
-    """Render AutoParty ensemble parameter form."""
-    with st.expander("AutoParty Ensemble Parameters"):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            committee_size = st.number_input(
-                "Committee size", 
-                min_value=2, max_value=10, 
-                value=defaults.get('committee_size', 3),
-                help="Number of models in the ensemble"
-            )
-            n_neurons = st.number_input(
-                "Neurons per layer", 
-                min_value=128, max_value=4096, 
-                value=defaults.get('n_neurons', 1024),
-                step=128,
-                help="Number of neurons in each hidden layer"
-            )
-            hidden_layers = st.number_input(
-                "Hidden layers", 
-                min_value=1, max_value=5, 
-                value=defaults.get('hidden_layers', 2),
-                help="Number of hidden layers"
-            )
-        
-        with col2:
-            dropout = st.number_input(
-                "Dropout rate", 
-                min_value=0.0, max_value=0.5, 
-                value=defaults.get('dropout', 0.2),
-                step=0.05,
-                help="Dropout probability for regularization"
-            )
-            data_split = st.selectbox(
-                "Data split method", 
-                options=['bootstrap', 'full-split'],
-                index=['bootstrap', 'full-split'].index(defaults.get('data_split', 'bootstrap')),
-                help="How to split data among ensemble members"
-            )
-    
-    st.info("🤖 AutoParty uses an ensemble of neural networks with built-in uncertainty estimation")
-    
-    return {
-        'committee_size': int(committee_size),
-        'n_neurons': int(n_neurons),
-        'hidden_layers': int(hidden_layers),
-        'dropout': float(dropout),
-        'data_split': data_split
     }
 
 def render_ml_model_options() -> Tuple[str, Dict[str, Any]]:
@@ -393,10 +246,10 @@ def render_ml_model_options() -> Tuple[str, Dict[str, Any]]:
     # Model type selection - Add AutoPartyEnsemble
     model_type = st.selectbox(
         "Model Type",
-        options=['RandomForest', 'GradientBoosting', 'SVM', 'GaussianProcess', 'MLP', 'AutoPartyEnsemble'],
-        index=['RandomForest', 'GradientBoosting', 'SVM', 'GaussianProcess', 'MLP', 'AutoPartyEnsemble'].index(
+        options=['RandomForest', 'GaussianProcess', 'LogisticAT'],
+        index=['RandomForest', 'GaussianProcess', 'LogisticAT'].index(
             config.get('default_type', 'RandomForest')
-        ),
+        ) if config.get('default_type', 'RandomForest') in ['RandomForest', 'GaussianProcess', 'LogisticAT'] else 0,
         help="Select the machine learning algorithm to use for predictions"
     )
     
@@ -406,16 +259,10 @@ def render_ml_model_options() -> Tuple[str, Dict[str, Any]]:
     # Render model-specific parameters
     if model_type == 'RandomForest':
         model_params = render_random_forest_params(model_defaults)
-    elif model_type == 'GradientBoosting':
-        model_params = render_gradient_boosting_params(model_defaults)
-    elif model_type == 'SVM':
-        model_params = render_svm_params(model_defaults)
     elif model_type == 'GaussianProcess':
         model_params = render_gaussian_process_params(model_defaults)
-    elif model_type == 'MLP':
-        model_params = render_mlp_params(model_defaults)
-    elif model_type == 'AutoPartyEnsemble':
-        model_params = render_autoparty_params(model_defaults)
+    elif model_type == 'LogisticAT':
+        model_params = render_logistic_at_params(model_defaults)
     else:
         model_params = model_defaults
     
@@ -453,8 +300,8 @@ def render_model_switcher(current_config: Dict[str, Any]) -> Tuple[str, Dict[str
     # Model type selection
     new_model_type = st.selectbox(
         "Model Type",
-        options=['RandomForest', 'GradientBoosting', 'SVM', 'GaussianProcess', 'MLP', 'AutoPartyEnsemble'],
-        index=['RandomForest', 'GradientBoosting', 'SVM', 'GaussianProcess', 'MLP', 'AutoPartyEnsemble'].index(current_model_type),
+        options=['RandomForest', 'GaussianProcess', 'LogisticAT'],
+        index=['RandomForest', 'GaussianProcess', 'LogisticAT'].index(current_model_type) if current_model_type in ['RandomForest', 'GaussianProcess', 'LogisticAT'] else 0,
         help="Change the ML algorithm for predictions",
         key="model_switcher_type"
     )
@@ -471,16 +318,10 @@ def render_model_switcher(current_config: Dict[str, Any]) -> Tuple[str, Dict[str
     # Render model-specific parameters in compact form
     if new_model_type == 'RandomForest':
         new_model_params = render_compact_random_forest_params(param_defaults)
-    elif new_model_type == 'GradientBoosting':
-        new_model_params = render_compact_gradient_boosting_params(param_defaults)
-    elif new_model_type == 'SVM':
-        new_model_params = render_compact_svm_params(param_defaults)
     elif new_model_type == 'GaussianProcess':
         new_model_params = render_compact_gaussian_process_params(param_defaults)
-    elif new_model_type == 'MLP':
-        new_model_params = render_compact_mlp_params(param_defaults)
-    elif new_model_type == 'AutoPartyEnsemble':
-        new_model_params = render_compact_autoparty_params(param_defaults)
+    elif new_model_type == 'LogisticAT':
+        new_model_params = render_compact_logistic_at_params(param_defaults)
     else:
         new_model_params = param_defaults
     
@@ -535,57 +376,6 @@ def render_compact_random_forest_params(defaults: Dict[str, Any]) -> Dict[str, A
         'n_jobs': -1
     }
 
-def render_compact_gradient_boosting_params(defaults: Dict[str, Any]) -> Dict[str, Any]:
-    """Render compact GradientBoosting parameter form for model switching."""
-    n_estimators = st.slider(
-        "Boosting Stages", 
-        min_value=10, max_value=200, 
-        value=defaults.get('n_estimators', 100),
-        step=10,
-        help="Number of boosting stages"
-    )
-    learning_rate = st.slider(
-        "Learning Rate", 
-        min_value=0.01, max_value=0.5, 
-        value=defaults.get('learning_rate', 0.1),
-        step=0.01,
-        help="Learning rate"
-    )
-    
-    return {
-        'n_estimators': int(n_estimators),
-        'learning_rate': float(learning_rate),
-        'max_depth': defaults.get('max_depth', 3),
-        'subsample': defaults.get('subsample', 1.0),
-        'min_samples_split': defaults.get('min_samples_split', 2),
-        'min_samples_leaf': defaults.get('min_samples_leaf', 1),
-        'random_state': 42
-    }
-
-def render_compact_svm_params(defaults: Dict[str, Any]) -> Dict[str, Any]:
-    """Render compact SVM parameter form for model switching."""
-    C = st.slider(
-        "Regularization (C)", 
-        min_value=0.1, max_value=10.0, 
-        value=defaults.get('C', 1.0),
-        step=0.1,
-        help="Regularization parameter"
-    )
-    kernel = st.selectbox(
-        "Kernel", 
-        options=['rbf', 'linear', 'poly'],
-        index=['rbf', 'linear', 'poly'].index(defaults.get('kernel', 'rbf')),
-        help="Kernel type"
-    )
-    
-    return {
-        'C': float(C),
-        'gamma': defaults.get('gamma', 'scale'),
-        'kernel': kernel,
-        'probability': True,
-        'random_state': 42
-    }
-
 def render_compact_gaussian_process_params(defaults: Dict[str, Any]) -> Dict[str, Any]:
     """Render compact GaussianProcess parameter form for model switching."""
     kernel = st.selectbox(
@@ -601,59 +391,19 @@ def render_compact_gaussian_process_params(defaults: Dict[str, Any]) -> Dict[str
         'random_state': 42
     }
 
-def render_compact_mlp_params(defaults: Dict[str, Any]) -> Dict[str, Any]:
-    """Render compact MLP parameter form for model switching."""
-    hidden_size = st.slider(
-        "Hidden Neurons", 
-        min_value=50, max_value=200, 
-        value=defaults.get('hidden_layer_sizes', [100])[0],
-        step=10,
-        help="Number of neurons in hidden layer"
-    )
-    alpha = st.select_slider(
-        "Regularization", 
-        options=[1e-5, 1e-4, 1e-3, 1e-2],
-        value=defaults.get('alpha', 0.0001),
-        format_func=lambda x: f"{x:.0e}",
-        help="L2 penalty parameter"
+def render_compact_logistic_at_params(defaults: Dict[str, Any]) -> Dict[str, Any]:
+    """Render compact LogisticAT parameter form for model switching."""
+    alpha = st.slider(
+        "Regularization (alpha)", 
+        min_value=0.1, max_value=10.0, 
+        value=float(defaults.get('alpha', 1.0)),
+        step=0.1,
+        help="Regularization strength"
     )
     
     return {
-        'hidden_layer_sizes': [int(hidden_size)],
-        'learning_rate': defaults.get('learning_rate', 'constant'),
-        'alpha': float(alpha),
-        'max_iter': defaults.get('max_iter', 200),
-        'activation': defaults.get('activation', 'relu'),
-        'solver': defaults.get('solver', 'adam'),
+        'alpha': alpha,
+        'max_iter': defaults.get('max_iter', 1000),
         'random_state': 42
     }
 
-def render_compact_autoparty_params(defaults: Dict[str, Any]) -> Dict[str, Any]:
-    """Render compact AutoParty parameter form for model switching."""
-    committee_size = st.slider(
-        "Committee Size", 
-        min_value=2, max_value=5, 
-        value=defaults.get('committee_size', 3),
-        help="Number of models in the ensemble"
-    )
-    n_neurons = st.select_slider(
-        "Neurons per Layer", 
-        options=[256, 512, 1024, 2048],
-        value=defaults.get('n_neurons', 1024),
-        help="Number of neurons in each hidden layer"
-    )
-    dropout = st.slider(
-        "Dropout Rate", 
-        min_value=0.1, max_value=0.5, 
-        value=defaults.get('dropout', 0.2),
-        step=0.05,
-        help="Dropout probability for regularization"
-    )
-    
-    return {
-        'committee_size': int(committee_size),
-        'n_neurons': int(n_neurons),
-        'hidden_layers': defaults.get('hidden_layers', 2),
-        'dropout': float(dropout),
-        'data_split': defaults.get('data_split', 'bootstrap')
-    }
