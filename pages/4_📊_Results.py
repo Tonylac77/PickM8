@@ -10,6 +10,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 from pathlib import Path
+from rdkit.Chem import PandasTools
 import tempfile
 
 # Import from new flat structure
@@ -329,8 +330,30 @@ def export_interface(df: pd.DataFrame, session_id: str, session_name: str):
         
         # SDF export
         if st.button("🧪 Export Molecules (SDF)", use_container_width=True):
-            if 'mol_block' in df.columns:
-                sdf_data = "\n$$$$\n".join(df['mol_block'].fillna("")) + "\n$$$$\n"
+            if 'mol_block' in df.columns and 'mol' in df.columns:
+                export_df = df.copy()
+                
+                # Columns to export, similar to CSV
+                export_cols = [
+                    'id', 'name', 'smiles', 'score', 'grade', 'grade_timestamp',
+                    'prediction', 'prediction_uncertainty', 'clashes', 'strain_energy',
+                    'num_interactions'
+                ]
+                
+                # Filter to columns that actually exist in the DataFrame
+                available_cols = [col for col in export_cols if col in export_df.columns]
+                
+                # Ensure mol column is present
+                if 'mol' not in export_df.columns:
+                    st.error("'mol' column not found, cannot generate SDF.")
+                    return
+
+                # Use a temporary file to write SDF data
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".sdf", mode='w') as tmpfile:
+                    PandasTools.WriteSDF(export_df, tmpfile.name, molColName='mol', idName='id', properties=available_cols)
+                    tmpfile.seek(0)
+                    sdf_data = tmpfile.read()
+
                 st.download_button(
                     label="Download SDF",
                     data=sdf_data,
@@ -338,7 +361,7 @@ def export_interface(df: pd.DataFrame, session_id: str, session_name: str):
                     mime="chemical/x-mdl-sdfile"
                 )
             else:
-                st.error("No molecular structure data available")
+                st.error("No molecular structure data available for SDF export.")
         
         # Graded molecules only
         graded_count = df['grade'].notna().sum()
