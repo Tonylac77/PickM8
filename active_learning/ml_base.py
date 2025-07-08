@@ -23,6 +23,7 @@ class MLModelBase(ABC):
         self.model_config = model_config
         self.model_type = model_config.get('model_type', 'Unknown')
         self.is_trained = False
+        self.model_category = model_config.get('model_category', 'classification')  # 'classification', 'regression', 'ordinal'
         
     @abstractmethod
     def fit(self, X: np.ndarray, y: np.ndarray) -> None:
@@ -88,3 +89,26 @@ class MLModelBase(ABC):
     def backend(self) -> str:
         """Return the backend type (sklearn or pytorch)."""
         return self._backend
+    
+    @property
+    def is_classifier(self) -> bool:
+        """Return True if this is a classification model."""
+        return self.model_category == 'classification'
+    
+    @property
+    def is_regressor(self) -> bool:
+        """Return True if this is a regression model."""
+        return self.model_category == 'regression'
+    
+    @property
+    def is_ordinal(self) -> bool:
+        """Return True if this is an ordinal regression model."""
+        return self.model_category == 'ordinal'
+    
+    def set_model_category(self, category: str) -> None:
+        """Set the model category (classification, regression, ordinal)."""
+        valid_categories = ['classification', 'regression', 'ordinal']
+        if category not in valid_categories:
+            raise ValueError(f"Invalid model category: {category}. Valid categories: {valid_categories}")
+        self.model_category = category
+        self.model_config['model_category'] = category
