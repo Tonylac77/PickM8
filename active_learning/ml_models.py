@@ -17,12 +17,13 @@ from sklearn.calibration import CalibratedClassifierCV
 from active_learning.ml_base import MLModelBase
 from active_learning.sklearn_models import SklearnModelWrapper
 from active_learning.autoparty_models import AutoPartyEnsemble
+from active_learning.ordinal_models import OrdinalRegressionWrapper
 
 from active_learning.encodings import (
     encode_grades_for_training as encode_grades_with_type,
     decode_predictions,
     get_ml_strategy,
-    SEQUENTIAL, NOMINAL, ORDINAL
+    SEQUENTIAL, ONE_HOT, ORDINAL, ORDINAL_REGRESSION
 )
 
 logger = logging.getLogger(__name__)
@@ -51,34 +52,9 @@ def load_model_config() -> Dict[str, Any]:
             'random_state': 42,
             'n_jobs': -1
         },
-        'GradientBoosting': {
-            'n_estimators': 100,
-            'learning_rate': 0.1,
-            'max_depth': 3,
-            'min_samples_split': 2,
-            'min_samples_leaf': 1,
-            'subsample': 1.0,
-            'random_state': 42
-        },
-        'SVM': {
-            'C': 1.0,
-            'gamma': 'scale',
-            'kernel': 'rbf',
-            'probability': True,
-            'random_state': 42
-        },
         'GaussianProcess': {
             'kernel': 'RBF',
             'n_restarts_optimizer': 0,
-            'random_state': 42
-        },
-        'MLP': {
-            'hidden_layer_sizes': [100],
-            'learning_rate': 'constant',
-            'alpha': 0.0001,
-            'max_iter': 200,
-            'activation': 'relu',
-            'solver': 'adam',
             'random_state': 42
         }
     }
@@ -123,7 +99,7 @@ def load_encoding_config() -> Dict[str, Any]:
                     
                     # Validate encoding type
                     encoding_type = encoding_config.get('type', SEQUENTIAL)
-                    if encoding_type not in [SEQUENTIAL, NOMINAL, ORDINAL]:
+                    if encoding_type not in [SEQUENTIAL, ONE_HOT, ORDINAL, ORDINAL_REGRESSION]:
                         logger.warning(f"Invalid encoding type '{encoding_type}', using default '{SEQUENTIAL}'")
                         encoding_config['type'] = SEQUENTIAL
                     
@@ -142,16 +118,35 @@ def load_encoding_config() -> Dict[str, Any]:
         logger.error(f"Error loading encoding config from config.yaml: {e}, using defaults")
         return default_config
 
-def create_model(model_type: str, model_params: Optional[Dict[str, Any]] = None, 
-                use_calibration: bool = True) -> MLModelBase:
+def determine_model_category(encoding_type: str) -> str:
     """
-    Factory function to create ML models with proper configuration.
-    Now returns MLModelBase instances that can be either sklearn or PyTorch based.
+    Determine the appropriate model category based on encoding type.
     
     Args:
-        model_type: Type of model
+        encoding_type: The encoding strategy being used
+        
+    Returns:
+        String indicating model category ('classification', 'regression', 'ordinal')
+    """
+    category_mapping = {
+        SEQUENTIAL: 'classification',
+        ONE_HOT: 'classification', 
+        ORDINAL: 'ordinal',
+        ORDINAL_REGRESSION: 'regression'
+    }
+    
+    return category_mapping.get(encoding_type, 'classification')
+
+def create_model(model_type: str, model_params: Optional[Dict[str, Any]] = None, 
+                use_calibration: bool = True, encoding_type: Optional[str] = None) -> MLModelBase:
+    """
+    Factory function to create ML models with proper configuration based on encoding strategy.
+    
+    Args:
+        model_type: Type of model ('RandomForest', 'GaussianProcess', 'LogisticAT')
         model_params: Model-specific parameters (uses config defaults if None)
-        use_calibration: Whether to wrap model with calibration
+        use_calibration: Whether to wrap model with calibration (classification only)
+        encoding_type: Encoding strategy to determine model category
         
     Returns:
         MLModelBase instance
@@ -160,51 +155,42 @@ def create_model(model_type: str, model_params: Optional[Dict[str, Any]] = None,
         config = load_model_config()
         model_params = config.get(model_type, {})
     
+    # Determine model category based on encoding type
+    if encoding_type is not None:
+        model_category = determine_model_category(encoding_type)
+    else:
+        model_category = 'classification'  # Default
+    
     # Create model configuration
     model_config = {
         'model_type': model_type,
         'model_params': model_params,
-        'use_calibration': use_calibration
+        'use_calibration': use_calibration,
+        'model_category': model_category,
+        'encoding_type': encoding_type
     }
     
-    # Determine which backend to use
-    pytorch_models = ['AutoPartyEnsemble']
-    sklearn_models = ['RandomForest', 'GradientBoosting', 'SVM', 'GaussianProcess', 'MLP']
+    # Supported models (deprecated models removed)
+    sklearn_models = ['RandomForest', 'GaussianProcess']
+    ordinal_models = ['LogisticAT']
     
-    if model_type in pytorch_models:
-        # Add additional PyTorch-specific config
-        config = load_model_config()
-        model_config.update({
-            'learning_rate': config.get('learning_rate', 1e-4),
-            'weight_decay': config.get('weight_decay', 1e-2),
-            'n_epochs': config.get('n_epochs', 100),
-            'batch_size': config.get('batch_size', 128)
-        })
-        
-        if model_type == 'AutoPartyEnsemble':
-            # Add AutoParty specific parameters
-            autoparty_defaults = config.get('AutoPartyEnsemble', {})
-            model_config.update({
-                'committee_size': autoparty_defaults.get('committee_size', 3),
-                'n_neurons': autoparty_defaults.get('n_neurons', 1024),
-                'hidden_layers': autoparty_defaults.get('hidden_layers', 2),
-                'dropout': autoparty_defaults.get('dropout', 0.2),
-                'data_split': autoparty_defaults.get('data_split', 'bootstrap')
-            })
-            return AutoPartyEnsemble(model_config)
-            
-    elif model_type in sklearn_models:
-        # Add calibration config if needed
-        if use_calibration:
+    if model_type in sklearn_models:
+        # Add calibration config if needed (only for classification)
+        if use_calibration and model_category == 'classification':
             config = load_model_config()
             model_config.update({
                 'calibration_method': config.get('calibration_method', 'isotonic'),
                 'calibration_cv': config.get('calibration_cv', 3)
             })
         return SklearnModelWrapper(model_config)
+        
+    elif model_type in ordinal_models:
+        # Ordinal regression models
+        return OrdinalRegressionWrapper(model_config)
+        
     else:
         raise ValueError(f"Unsupported model type: {model_type}. "
-                        f"Supported types: {pytorch_models + sklearn_models}")
+                        f"Supported types: {sklearn_models + ordinal_models}")
 
 def get_uncertainty_estimate(model: MLModelBase, X: np.ndarray) -> np.ndarray:
     """
@@ -304,7 +290,7 @@ def encode_grades_for_training(df: pd.DataFrame, encoding_type: Optional[str] = 
     
     Args:
         df: Molecules DataFrame with grades
-        encoding_type: Type of encoding to use (sequential, nominal, ordinal). Uses config default if None.
+        encoding_type: Type of encoding to use (sequential, one_hot, ordinal, ordinal_regression). Uses config default if None.
         
     Returns:
         Tuple of (encoded_labels, label_mapping)
@@ -367,12 +353,12 @@ def train_model(df: pd.DataFrame,
         encoding_config = load_encoding_config()
         encoding_type = encoding_config.get('type', SEQUENTIAL)
     
-    # Create model using factory function
+    # Create model using factory function with encoding type
     try:
-        model = create_model(model_type, model_params, use_calibration)
+        model = create_model(model_type, model_params, use_calibration, encoding_type)
     except Exception as e:
         logger.error(f"Error creating {model_type} model: {e}, falling back to RandomForest")
-        model = create_model('RandomForest', None, use_calibration)
+        model = create_model('RandomForest', None, use_calibration, encoding_type)
         model_type = 'RandomForest'
     
     # Add output_type to model config for AutoParty
@@ -386,15 +372,24 @@ def train_model(df: pd.DataFrame,
     # Calculate metrics
     y_pred = model.predict(X)
     
-    # For ordinal encoding, convert back to class indices
-    if encoding_type == ORDINAL and len(y_pred.shape) > 1:
-        # Convert ordinal predictions to class indices
-        y_pred = np.sum(y_pred > 0.5, axis=1) - 1
-        y_pred = np.clip(y_pred, 0, len(label_mapping) - 1)
-    
-    # Calculate accuracy
-    from sklearn.metrics import accuracy_score
-    accuracy = accuracy_score(y, y_pred)
+    # Calculate metrics based on model category
+    if model.is_regressor:
+        # For regression models, use MSE and R²
+        from sklearn.metrics import mean_squared_error, r2_score
+        mse = mean_squared_error(y, y_pred)
+        r2 = r2_score(y, y_pred)
+        accuracy = r2  # Use R² as the main metric for regression
+        
+        logger.info(f"Regression metrics - MSE: {mse:.3f}, R²: {r2:.3f}")
+    else:
+        # For classification models, use accuracy
+        # For ordinal encoding, convert back to class indices
+        if encoding_type == ORDINAL and len(y_pred.shape) > 1:
+            y_pred = np.sum(y_pred > 0.5, axis=1) - 1
+            y_pred = np.clip(y_pred, 0, len(label_mapping) - 1)
+        # Compare predictions with the format used for training
+        from sklearn.metrics import accuracy_score
+        accuracy = accuracy_score(y, y_pred)
     
     metrics = {
         'accuracy': accuracy,
@@ -452,28 +447,47 @@ def update_predictions(df: pd.DataFrame,
     # Make predictions
     raw_predictions = model.predict(X)
     
-    # Handle different prediction formats based on encoding type
-    if encoding_type == ORDINAL and len(raw_predictions.shape) > 1:
+    # Handle different prediction formats based on encoding type and model category
+    if encoding_type == ORDINAL_REGRESSION:
+        # For ordinal regression with continuous predictions, use decoding function
+        try:
+            grade_predictions = decode_predictions(raw_predictions, label_mapping, encoding_type)
+        except Exception as e:
+            logger.error(f"Error decoding ordinal regression predictions: {e}")
+            # Fallback to binning
+            grade_predictions = []
+            for pred in raw_predictions:
+                if pred < 25:
+                    grade_predictions.append('D')
+                elif pred < 50:
+                    grade_predictions.append('C')
+                elif pred < 75:
+                    grade_predictions.append('B')
+                else:
+                    grade_predictions.append('A')
+    elif encoding_type == ORDINAL and len(raw_predictions.shape) > 1:
         # Convert ordinal predictions to class indices
         pred_indices = np.sum(raw_predictions > 0.5, axis=1) - 1
         pred_indices = np.clip(pred_indices, 0, len(label_mapping) - 1)
-    elif encoding_type == NOMINAL and len(raw_predictions.shape) > 1:
+    elif encoding_type == ONE_HOT and len(raw_predictions.shape) > 1:
         # Get class with highest probability
         pred_indices = np.argmax(raw_predictions, axis=1)
     else:
         # Sequential or already converted
         pred_indices = np.round(raw_predictions).astype(int)
-        pred_indices = np.clip(pred_indices, 0, len(label_mapping) - 1)
+        max_val = max(label_mapping.values()) if label_mapping else 3
+        pred_indices = np.clip(pred_indices, 0, max_val)
     
-    # Decode predictions to grade strings
-    if label_mapping:
-        try:
-            grade_predictions = decode_predictions(pred_indices, label_mapping, encoding_type)
-        except Exception as e:
-            logger.error(f"Error decoding predictions: {e}, using raw predictions")
+    # Decode predictions to grade strings (if not already done for ORDINAL_REGRESSION)
+    if encoding_type != ORDINAL_REGRESSION:
+        if label_mapping:
+            try:
+                grade_predictions = decode_predictions(pred_indices, label_mapping, encoding_type)
+            except Exception as e:
+                logger.error(f"Error decoding predictions: {e}, using raw predictions")
+                grade_predictions = [str(pred) for pred in pred_indices]
+        else:
             grade_predictions = [str(pred) for pred in pred_indices]
-    else:
-        grade_predictions = [str(pred) for pred in pred_indices]
     
     # Get uncertainty estimates
     uncertainties = model.get_uncertainty(X)
@@ -513,7 +527,7 @@ def ensure_backward_compatibility(df: pd.DataFrame, model_config: Optional[Dict[
     
     # Validate encoding type
     encoding_type = model_config.get('encoding_type', SEQUENTIAL)
-    if encoding_type not in [SEQUENTIAL, NOMINAL, ORDINAL]:
+    if encoding_type not in [SEQUENTIAL, ONE_HOT, ORDINAL, ORDINAL_REGRESSION]:
         logger.warning(f"Invalid encoding type '{encoding_type}', falling back to sequential")
         model_config['encoding_type'] = SEQUENTIAL
     
