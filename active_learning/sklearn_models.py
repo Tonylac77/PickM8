@@ -5,11 +5,9 @@ import numpy as np
 import pickle
 import logging
 from typing import Dict, Any, Optional
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.svm import SVC
-from sklearn.gaussian_process import GaussianProcessClassifier
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.gaussian_process import GaussianProcessClassifier, GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, Matern
-from sklearn.neural_network import MLPClassifier
 from sklearn.calibration import CalibratedClassifierCV
 
 from .ml_base import MLModelBase
@@ -44,15 +42,15 @@ class SklearnModelWrapper(MLModelBase):
         if 'model' in self.model_config:
             base_model = self.model_config['model']
         else:
+            # Determine if we need classification or regression model
+            is_regression = self.model_category == 'regression'
+            
             # Create base model
             if model_type == 'RandomForest':
-                base_model = RandomForestClassifier(**model_params)
-            elif model_type == 'GradientBoosting':
-                base_model = GradientBoostingClassifier(**model_params)
-            elif model_type == 'SVM':
-                model_params = model_params.copy()
-                model_params['probability'] = True
-                base_model = SVC(**model_params)
+                if is_regression:
+                    base_model = RandomForestRegressor(**model_params)
+                else:
+                    base_model = RandomForestClassifier(**model_params)
             elif model_type == 'GaussianProcess':
                 params = model_params.copy()
                 kernel_type = params.pop('kernel', 'RBF')
@@ -60,13 +58,16 @@ class SklearnModelWrapper(MLModelBase):
                     params['kernel'] = RBF()
                 elif kernel_type == 'Matern':
                     params['kernel'] = Matern()
-                base_model = GaussianProcessClassifier(**params)
-            elif model_type == 'MLP':
-                base_model = MLPClassifier(**model_params)
+                
+                if is_regression:
+                    base_model = GaussianProcessRegressor(**params)
+                else:
+                    base_model = GaussianProcessClassifier(**params)
             else:
                 raise ValueError(f"Unsupported sklearn model type: {model_type}")
         
-        if use_calibration and model_type in ['RandomForest', 'SVM', 'MLP']:
+        # Only apply calibration to classification models
+        if use_calibration and not is_regression and model_type in ['RandomForest']:
             calibration_method = self.model_config.get('calibration_method', 'isotonic')
             calibration_cv = self.model_config.get('calibration_cv', 3)
             return CalibratedClassifierCV(base_model, method=calibration_method, cv=calibration_cv)
@@ -90,6 +91,11 @@ class SklearnModelWrapper(MLModelBase):
         if not self.is_trained:
             raise ValueError("Model must be trained before making predictions")
         
+        # For regression models, return predictions as single column
+        if self.is_regressor:
+            predictions = self.predict(X)
+            return predictions.reshape(-1, 1)
+        
         if hasattr(self.model, 'predict_proba'):
             return self.model.predict_proba(X)
         else:
@@ -107,15 +113,27 @@ class SklearnModelWrapper(MLModelBase):
         if not self.is_trained:
             raise ValueError("Model must be trained before estimating uncertainty")
         
-        # Special handling for Gaussian Process
-        if isinstance(self.model, GaussianProcessClassifier):
+        # Special handling for Gaussian Process (both classification and regression)
+        if isinstance(self.model, (GaussianProcessClassifier, GaussianProcessRegressor)):
             try:
                 _, std = self.model.predict(X, return_std=True)
                 return std
             except:
                 pass
         
-        # General approach: use probability entropy
+        # For regression models
+        if self.is_regressor:
+            # For Random Forest Regression, use prediction variance across trees
+            if isinstance(self.model, RandomForestRegressor):
+                # Get predictions from individual trees
+                tree_predictions = np.array([tree.predict(X) for tree in self.model.estimators_])
+                # Calculate variance across trees as uncertainty
+                return np.var(tree_predictions, axis=0)
+            else:
+                # Fallback for other regression models
+                return np.ones(len(X)) * 0.5
+        
+        # For classification models: use probability entropy
         if hasattr(self.model, 'predict_proba'):
             probabilities = self.model.predict_proba(X)
             # Uncertainty = 1 - max probability
