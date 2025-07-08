@@ -3,7 +3,7 @@
 
 # Machine Learning Models Configuration
 ml_models:
-  default_type: "GaussianProcess"  # Options: RandomForest, GradientBoosting, SVM, GaussianProcess, MLP, AutoPartyEnsemble
+  default_type: "RandomForest"  # Options: RandomForest, GaussianProcess, LogisticAT
   calibration_enabled: true
   calibration_method: "isotonic"  # Options: isotonic, sigmoid
   calibration_cv: 3
@@ -26,52 +26,29 @@ ml_models:
     random_state: 42
     n_jobs: -1
   
-  GradientBoosting:
-    n_estimators: 150
-    learning_rate: 0.1
-    max_depth: 5
-    min_samples_split: 2
-    min_samples_leaf: 1
-    subsample: 0.8
-    random_state: 42
-  
-  SVM:
-    C: 10.0
-    gamma: "scale"
-    kernel: "rbf"
-    probability: true
-    random_state: 42
-  
   GaussianProcess:
     kernel: "Matern"  # Options: RBF, Matern
     optimize_kernel: true  # Optimize kernel hyperparameters
     n_restarts_optimizer: 10  # More restarts = better optimization
     random_state: 42
   
-  MLP:
-    hidden_layer_sizes: [200, 100]  # Two hidden layers
-    learning_rate: "adaptive"
-    alpha: 0.001
-    max_iter: 500
-    activation: "relu"
-    solver: "adam"
+  LogisticAT:
+    alpha: 1.0  # Regularization strength
+    max_iter: 1000
     random_state: 42
-  
-  AutoPartyEnsemble:
-    committee_size: 5  # Number of models in ensemble
-    n_neurons: 1024
-    hidden_layers: 3
-    dropout: 0.3
-    data_split: "bootstrap"
-    learning_rate: 0.0001
-    weight_decay: 0.01
-    n_epochs: 150
-    batch_size: 64
 
 # Encoding Configuration
 encoding:
-  type: "sequential"  # Options: sequential, nominal, ordinal
+  type: "sequential"  # Options: sequential, one_hot, ordinal, ordinal_regression
   default_grades: ["A", "B", "C", "D"]
+  
+  # Encoding-specific settings
+  ordinal_regression:
+    grade_ranges:
+      D: [0, 25]
+      C: [25, 50]
+      B: [50, 75]
+      A: [75, 100]
 
 
 # Interaction Analysis Configuration
