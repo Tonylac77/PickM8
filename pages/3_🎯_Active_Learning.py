@@ -72,7 +72,7 @@ def render_sidebar_controls():
     has_model = grading.has_trained_model(df)
     
     if has_model:
-        strategies = ["Best Predictions", "Highest Uncertainty"]
+        strategies = ["Best Predictions"]
         default_strategy = "Best Predictions"
     else:
         strategies = ["Random", "Best Score"]
@@ -100,12 +100,6 @@ def render_sidebar_controls():
         help="Choose how molecules are selected for grading"
     )
     
-    # Show strategy status info
-    if has_model:
-        st.info("🧠 **ML Model Available**: Using prediction-based selection strategies")
-    else:
-        st.info("📊 **No ML Model**: Using basic selection strategies. Train a model to unlock prediction-based options.")
-
     # ML Configuration
     st.subheader("🤖 Machine Learning")
     
@@ -348,7 +342,6 @@ def train_model_with_config_update(df: pd.DataFrame):
             # Clear existing predictions before retraining
             df_clear = df.copy()
             df_clear['prediction'] = None
-            df_clear['prediction_uncertainty'] = None
             df_clear['prediction_timestamp'] = None
             
             # Train model with new configuration using default fingerprint selection
