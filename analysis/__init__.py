@@ -1,7 +1,16 @@
 """
 Analysis module for PickM8 molecular screening application.
 
-This module provides functionality for analyzing molecular data including:
+This module    # Similarity analysis
+    'get_enabled_fingerprint_columns',
+    'concatenate_fingerprints',
+    'calculate_tanimoto_similarity',
+    'calculate_mol_similarity',
+    'find_most_similar_molecule',
+    'find_most_similar_molecule_by_mol',
+    'get_similarity_statistics',
+    'find_similar_molecules',
+    'validate_fingerprint_data',s functionality for analyzing molecular data including:
 - Manual grading workflows and statistics
 - Pose quality analysis using PoseCheck
 - Dataset statistics and correlation analysis
@@ -39,6 +48,19 @@ from .statistics import (
     calculate_correlation_matrix,
 )
 
+from .similarity import (
+    # Similarity analysis
+    get_enabled_fingerprint_columns,
+    concatenate_fingerprints,
+    calculate_tanimoto_similarity,
+    calculate_mol_similarity,
+    find_most_similar_molecule,
+    find_most_similar_molecule_by_mol,
+    get_similarity_statistics,
+    find_similar_molecules,
+    validate_fingerprint_data,
+)
+
 # Define public API
 __all__ = [
     # Grading functions
@@ -60,4 +82,13 @@ __all__ = [
     # Statistical functions
     'calculate_dataset_statistics',
     'calculate_correlation_matrix',
+
+    # Similarity functions
+    'get_enabled_fingerprint_columns',
+    'concatenate_fingerprints',
+    'calculate_tanimoto_similarity',
+    'find_most_similar_molecule',
+    'get_similarity_statistics',
+    'find_similar_molecules',
+    'validate_fingerprint_data',
 ]
