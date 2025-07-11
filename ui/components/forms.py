@@ -1,9 +1,8 @@
 """UI form components and validation."""
 import streamlit as st
-import yaml
-from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 import logging
+from utils.config import load_ml_config, ConfigurationError
 
 logger = logging.getLogger(__name__)
 
@@ -83,9 +82,13 @@ def render_processing_options() -> Dict[str, Any]:
     with col1:
         fingerprint_types = st.multiselect(
             "Molecular Fingerprints",
-            options=['morgan', 'rdkit', 'mapchiral'],
-            default=['morgan', 'rdkit'],
-            help="Select fingerprint types to compute"
+            options=[
+                'mapchiral',  # Legacy (kept for backward compatibility)
+                'e3fp', 'ecfp', 'electroshape', 'functional_groups', 
+                'maccs', 'pattern', 'pharmacophore'  # scikit-fingerprints
+            ],
+            default=['ecfp', 'functional_groups', 'maccs'],
+            help="Select fingerprint types to compute. Legacy: MapChiral. scikit-fingerprints: E3FP, ECFP, ElectroShape, FunctionalGroups, MACCS, Pattern, Pharmacophore"
         )
     with col2:
         interaction_type = st.selectbox(
@@ -94,39 +97,36 @@ def render_processing_options() -> Dict[str, Any]:
             index=0,
             help="Method for protein-ligand interaction analysis"
         )
-    compute_pose_quality = st.checkbox(
-        "Compute Pose Quality",
-        value=True,
-        help="Calculate clash detection and strain energy"
-    )
+    
+    col3, col4 = st.columns(2)
+    with col3:
+        compute_pose_quality = st.checkbox(
+            "Compute Pose Quality",
+            value=True,
+            help="Calculate clash detection and strain energy"
+        )
+    with col4:
+        # Check if GRADE is available
+        try:
+            from features.grade_descriptors import is_grade_available
+            grade_available = is_grade_available()
+        except ImportError:
+            grade_available = False
+        
+        compute_grade = st.checkbox(
+            "Compute GRADE Descriptors",
+            value=False,
+            disabled=not grade_available,
+            help="Calculate GRAIL affinity prediction descriptors (requires CDPL/GRAIL). Parameters configured in config.yaml"
+        )
 
     return {
         'fingerprint_types': fingerprint_types,
         'interaction_type': interaction_type,
-        'compute_pose_quality': compute_pose_quality
+        'compute_pose_quality': compute_pose_quality,
+        'compute_grade': compute_grade
     }
 
-def load_ml_config() -> Dict[str, Any]:
-    """Load ML model configuration from config.yaml with fallback defaults."""
-    config_path = Path("config.yaml")
-    
-    default_config = {
-        'default_type': 'RandomForest',
-        'calibration_enabled': True,
-        'RandomForest': {'n_estimators': 100, 'max_depth': None, 'min_samples_split': 2},
-        'GaussianProcess': {'kernel': 'RBF'},
-        'LogisticAT': {'alpha': 1.0, 'max_iter': 1000}
-    }
-    
-    try:
-        if config_path.exists():
-            with open(config_path, 'r') as f:
-                config = yaml.safe_load(f)
-                return config.get('ml_models', default_config)
-        return default_config
-    except Exception as e:
-        logger.error(f"Error loading ML config: {e}")
-        return default_config
 
 def render_random_forest_params(defaults: Dict[str, Any]) -> Dict[str, Any]:
     """Render RandomForest parameter form."""
@@ -192,7 +192,7 @@ def render_gaussian_process_params(defaults: Dict[str, Any]) -> Dict[str, Any]:
                 help="Number of restarts of the optimizer"
             )
     
-    st.info("💡 Gaussian Process provides natural uncertainty estimates without requiring calibration")
+    st.info("💡 Gaussian Process model configuration")
     
     return {
         'kernel': kernel,
@@ -240,10 +240,21 @@ def render_ml_model_options() -> Tuple[str, Dict[str, Any]]:
     """
     st.markdown("#### 4. Machine Learning Model")
     
-    # Load configuration
-    config = load_ml_config()
+    # Load configuration with error handling
+    try:
+        config = load_ml_config()
+    except ConfigurationError as e:
+        st.error(f"❌ Configuration Error: {e}")
+        st.info("💡 Please check your config.yaml file and ensure the ml_models section is properly configured.")
+        # Use minimal fallback defaults
+        config = {
+            'default_type': 'RandomForest',
+            'RandomForest': {'n_estimators': 100, 'max_depth': None},
+            'GaussianProcess': {'kernel': 'RBF'},
+            'LogisticAT': {'alpha': 1.0, 'max_iter': 1000}
+        }
     
-    # Model type selection - Add AutoPartyEnsemble
+    # Model type selection
     model_type = st.selectbox(
         "Model Type",
         options=['RandomForest', 'GaussianProcess', 'LogisticAT'],
@@ -266,13 +277,8 @@ def render_ml_model_options() -> Tuple[str, Dict[str, Any]]:
     else:
         model_params = model_defaults
     
-    # Calibration options
-    use_calibration = st.checkbox(
-        "Enable Probability Calibration",
-        value=config.get('calibration_enabled', True),
-        help="Improve probability estimates for better uncertainty quantification",
-        disabled=(model_type == 'AutoPartyEnsemble')  # AutoParty has built-in uncertainty
-    )
+    # Calibration disabled - no UI options needed
+    use_calibration = False
     
     return model_type, {
         'model_params': model_params,
@@ -289,12 +295,22 @@ def render_model_switcher(current_config: Dict[str, Any]) -> Tuple[str, Dict[str
     Returns:
         Tuple of (model_type, model_config, config_changed)
     """
-    # Load ML configuration defaults
-    config = load_ml_config()
+    # Load ML configuration defaults with error handling
+    try:
+        config = load_ml_config()
+    except ConfigurationError as e:
+        st.error(f"❌ Configuration Error: {e}")
+        # Use minimal fallback defaults
+        config = {
+            'default_type': 'RandomForest',
+            'RandomForest': {'n_estimators': 100, 'max_depth': None},
+            'GaussianProcess': {'kernel': 'RBF'},
+            'LogisticAT': {'alpha': 1.0, 'max_iter': 1000}
+        }
     
     # Get current values or defaults
     current_model_type = current_config.get('model_type', 'RandomForest')
-    current_use_calibration = current_config.get('use_calibration', True)
+    current_use_calibration = False
     current_model_params = current_config.get('model_params', {})
     
     # Model type selection
@@ -325,14 +341,8 @@ def render_model_switcher(current_config: Dict[str, Any]) -> Tuple[str, Dict[str
     else:
         new_model_params = param_defaults
     
-    # Calibration checkbox
-    new_use_calibration = st.checkbox(
-        "Enable Probability Calibration",
-        value=current_use_calibration,
-        help="Improve probability estimates for uncertainty",
-        key="model_switcher_calibration",
-        disabled=(new_model_type == 'AutoPartyEnsemble')  # AutoParty has built-in uncertainty
-    )
+    # Calibration disabled - no UI options needed
+    new_use_calibration = False
 
     
     # Check if configuration changed

@@ -162,22 +162,6 @@ class MoleculeVisualizer:
             
             st.markdown(f"{icon} **Grade: {prediction_display}**")
             
-            # Uncertainty with color coding
-            if mol_data.get('prediction_uncertainty') is not None:
-                uncertainty = mol_data['prediction_uncertainty']
-                
-                # Color code uncertainty: low=green, medium=yellow, high=red
-                if uncertainty < 0.3:
-                    uncertainty_color = "🟢"
-                    uncertainty_text = "Low"
-                elif uncertainty < 0.6:
-                    uncertainty_color = "🟡"
-                    uncertainty_text = "Medium"
-                else:
-                    uncertainty_color = "🔴"
-                    uncertainty_text = "High"
-                
-                st.text(f"{uncertainty_color} Uncertainty: {uncertainty_text} ({uncertainty:.2f})")
             
             # Timestamp
             if mol_data.get('prediction_timestamp') is not None:
