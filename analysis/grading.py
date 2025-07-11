@@ -94,8 +94,6 @@ def filter_and_sort_molecules(
         filtered_df = filtered_df.sort_values('score', ascending=ascending)
     elif sort_by == 'grade_time' and 'grade_timestamp' in filtered_df.columns:
         filtered_df = filtered_df.sort_values('grade_timestamp', ascending=False, na_position='last')
-    elif sort_by == 'uncertainty' and 'prediction_uncertainty' in filtered_df.columns:
-        filtered_df = filtered_df.sort_values('prediction_uncertainty', ascending=False, na_position='last')
     elif sort_by == 'random':
         filtered_df = filtered_df.sample(frac=1.0, random_state=42).reset_index(drop=True)
     elif sort_by == 'best_prediction' and 'prediction' in filtered_df.columns:
@@ -127,7 +125,7 @@ def get_molecules_by_strategy(df: pd.DataFrame, strategy: str, metadata: Optiona
     
     Args:
         df: Molecules DataFrame
-        strategy: Selection strategy ('Random', 'Best Score', 'Best Predictions', 'Highest Uncertainty')
+        strategy: Selection strategy ('Random', 'Best Score', 'Best Predictions')
         metadata: Session metadata containing score_direction preference
         
     Returns:
@@ -138,12 +136,29 @@ def get_molecules_by_strategy(df: pd.DataFrame, strategy: str, metadata: Optiona
         'Random': 'random',
         'Best Score': 'score',
         'Best Predictions': 'best_prediction',
-        'Highest Uncertainty': 'uncertainty'
     }
     
     sort_by = strategy_mapping.get(strategy, 'score')
     
     return filter_and_sort_molecules(df, mode='ungraded', sort_by=sort_by, metadata=metadata)
+
+def get_best_ungraded_molecule(df: pd.DataFrame, strategy: str, metadata: Optional[Dict[str, Any]] = None) -> Optional[pd.Series]:
+    """
+    Get the best ungraded molecule based on the specified selection strategy.
+    
+    This function provides stateless molecule selection - always returns the top-ranked
+    ungraded molecule according to the strategy, eliminating navigation state issues.
+    
+    Args:
+        df: Molecules DataFrame
+        strategy: Selection strategy ('Random', 'Best Score', 'Best Predictions')
+        metadata: Session metadata containing score_direction preference
+        
+    Returns:
+        Best ungraded molecule as Series, or None if no ungraded molecules exist
+    """
+    filtered_df = get_molecules_by_strategy(df, strategy, metadata)
+    return filtered_df.iloc[0] if len(filtered_df) > 0 else None
 
 def reset_all_grades(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -151,7 +166,7 @@ def reset_all_grades(df: pd.DataFrame) -> pd.DataFrame:
     
     This function clears:
     - Manual grades and timestamps
-    - ML predictions and uncertainty estimates
+    - ML predictions
     - All prediction-related metadata
     
     Preserves:
@@ -178,7 +193,7 @@ def reset_all_grades(df: pd.DataFrame) -> pd.DataFrame:
         df['grade_timestamp'] = None
     
     # Clear prediction data - handle all prediction-related columns robustly
-    prediction_columns = ['prediction', 'prediction_uncertainty', 'prediction_timestamp']
+    prediction_columns = ['prediction', 'prediction_timestamp']
     for col in prediction_columns:
         if col in df.columns:
             df[col] = None

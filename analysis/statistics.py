@@ -105,7 +105,7 @@ def calculate_correlation_matrix(df: pd.DataFrame) -> Dict[str, Any]:
     Returns:
         Dictionary with correlation data
     """
-    numeric_cols = ['score', 'num_interactions', 'clashes', 'strain_energy', 'prediction_uncertainty']
+    numeric_cols = ['score', 'num_interactions', 'clashes', 'strain_energy']
     available_cols = [col for col in numeric_cols if col in df.columns and df[col].notna().any()]
     
     if len(available_cols) < 2:
