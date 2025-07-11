@@ -9,6 +9,7 @@ biopython<=1.75
 numpy
 pandas
 scikit-learn
+scikit-fingerprints
 torch>=2.0.0
 pyyaml
 tqdm

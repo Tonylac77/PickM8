@@ -3,15 +3,13 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - python<=3.8
+  - python<=3.9
   - streamlit>=1.35.0
-  - polars
   - rdkit
   - biopython<=1.75
-  - numpy
+  - numpy<2.0.0
   - pandas
   - scikit-learn
-  - pytorch>=2.0.0
   - pyyaml
   - tqdm
   - plotly
@@ -31,3 +29,6 @@ dependencies:
     - prolif
     - MDAnalysis
     - posecheck
+    - scikit-fingerprints
+    - cdpkit>=1.2.0
+    - mord
