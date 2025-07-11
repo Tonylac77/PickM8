@@ -137,10 +137,10 @@ def create_new_session():
                     col1, col2 = st.columns(2)
                     with col1:
                         if st.button("🎯 Go to Active Learning"):
-                            st.switch_page("pages/3_🎯_Active_Learning.py")
+                            st.switch_page("pages/2_🎯_Active_Learning.py")
                     with col2:
                         if st.button("📊 View Results"):
-                            st.switch_page("pages/4_📊_Results.py")
+                            st.switch_page("pages/3_📊_Results.py")
                 else:
                     st.error("Failed to save session")
         except ConfigurationError as e:
@@ -195,7 +195,7 @@ def load_existing_session():
                     st.session_state.molecules_df = df
                     st.session_state.metadata = metadata
                     st.success("Session loaded successfully!")
-                    st.switch_page("pages/3_🎯_Active_Learning.py")
+                    st.switch_page("pages/2_🎯_Active_Learning.py")
                 else:
                     st.error("Failed to load session")
 
