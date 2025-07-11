@@ -110,62 +110,47 @@ class MoleculeVisualizer:
     
     def show_compact_molecule_info(self, mol_data: dict):
         """Display molecule information in ultra-compact format."""
-        st.markdown(f"**{mol_data.get('name', 'Unknown')}**")
+        st.markdown(f"#### {mol_data.get('name', 'Unknown')}")
         
         # Key metrics in minimal space
         col1, col2 = st.columns(2)
         with col1:
-            st.text(f"Score: {mol_data['score']:.3f}")
+            st.markdown(f"##### Score: {mol_data['score']:.3f}")
             if mol_data.get('clashes') is not None:
-                st.text(f"Clashes: {mol_data['clashes']}")
-        
+                st.markdown(f"##### Clashes: {mol_data['clashes']}")
+            if mol_data.get('strain_energy') is not None:
+                st.markdown(f"##### Strain Energy: {mol_data['strain_energy']:.3f}")
+                
+                # Calculate strain energy per heavy atom if molecule is available
+                if mol_data.get('mol') is not None:
+                    try:
+                        heavy_atom_count = mol_data['mol'].GetNumHeavyAtoms()
+                        if heavy_atom_count > 0:
+                            strain_per_heavy_atom = mol_data['strain_energy'] / heavy_atom_count
+                            st.markdown(f"##### Strain/Heavy Atom: {strain_per_heavy_atom:.3f}")
+                    except Exception:
+                        pass  # Skip if calculation fails
+
         with col2:
             if mol_data.get('num_interactions') is not None:
-                st.text(f"Interactions: {mol_data['num_interactions']}")
+                st.markdown(f"##### Interactions: {mol_data['num_interactions']}")
             if 'molecular_weight' in mol_data:
-                st.text(f"MW: {mol_data['molecular_weight']:.1f}")
-        
+                st.markdown(f"##### MW: {mol_data['molecular_weight']:.1f}")
+
         # ML Predictions section
         if mol_data.get('prediction') is not None:
-            st.divider()
-            st.markdown("**🤖 ML Prediction**")
+            st.markdown("#### 🤖 ML Prediction")
             
             # Get prediction (now already decoded to grade string)
             prediction_value = mol_data['prediction']
             
-            # Handle both legacy numeric predictions and new grade string predictions
-            if isinstance(prediction_value, str) and prediction_value in ['A', 'B', 'C', 'D']:
-                # New system: prediction is already a grade string
-                prediction_display = prediction_value
-            else:
-                # Legacy system: try to convert using label mapping
-                label_mapping = None
-                if hasattr(st.session_state, 'metadata') and st.session_state.metadata:
-                    label_mapping = st.session_state.metadata.get('label_mapping')
-                
-                if label_mapping and isinstance(label_mapping, dict) and len(label_mapping) > 0:
-                    try:
-                        pred_int = int(float(prediction_value))
-                        reverse_mapping = {v: k for k, v in label_mapping.items()}
-                        prediction_display = reverse_mapping.get(pred_int, f"Unknown({pred_int})")
-                    except (ValueError, TypeError):
-                        prediction_display = f"Error({prediction_value})"
-                else:
-                    prediction_display = f"Raw({prediction_value})"
+            prediction_display = prediction_value
             
             # Prediction with color coding
             
             grade_colors = {
-                'A': '🟢', 'B': '🔵', 'C': '🟡', 'D': '🟠'
+                'A': '🟢', 'B': '🟡', 'C': '🟠', 'D': '🔴'
             }
             icon = grade_colors.get(str(prediction_display), '⚪')
             
-            st.markdown(f"{icon} **Grade: {prediction_display}**")
-            
-            
-            # Timestamp
-            if mol_data.get('prediction_timestamp') is not None:
-                timestamp = mol_data['prediction_timestamp']
-                if hasattr(timestamp, 'strftime'):
-                    time_str = timestamp.strftime('%H:%M:%S')
-                    st.text(f"⏰ Predicted at {time_str}")
+            st.markdown(f"##### {icon} Grade: {prediction_display}")
