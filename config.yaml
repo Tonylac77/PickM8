@@ -4,9 +4,6 @@
 # Machine Learning Models Configuration
 ml_models:
   default_type: "RandomForest"  # Options: RandomForest, GaussianProcess, LogisticAT
-  calibration_enabled: false
-  calibration_method: "isotonic"  # Options: isotonic, sigmoid
-  calibration_cv: 3
   
   # Feature Engineering Settings
   feature_engineering:

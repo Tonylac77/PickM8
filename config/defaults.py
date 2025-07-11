@@ -9,9 +9,6 @@ DEFAULT_CONFIG = {
     # Machine Learning Models Configuration
     "ml_models": {
         "default_type": "RandomForest",
-        "calibration_enabled": False,
-        "calibration_method": "isotonic",
-        "calibration_cv": 3,
         
         # Feature Engineering Settings
         "feature_engineering": {

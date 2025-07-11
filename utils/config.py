@@ -272,8 +272,7 @@ def build_session_config(user_options: Dict[str, Any]) -> Dict[str, Any]:
             'compute_grade_descriptors': grade_enabled,
             'model_config': {
                 'model_type': user_options.get('model_type', ml_config.get('default_type', 'RandomForest')),
-                'model_params': user_options.get('model_params', {}),
-                'use_calibration': user_options.get('use_calibration', False)
+                'model_params': user_options.get('model_params', {})
             }
         }
         

@@ -54,8 +54,9 @@ class TestEncodingModelCompatibility:
             'id': list(range(n_molecules)),
             'name': [f'mol_{i}' for i in range(n_molecules)],
             'score': np.random.uniform(-10, 0, n_molecules),
-            'morgan_fp': [np.random.randint(0, 2, 1024).tolist() for _ in range(n_molecules)],
-            'rdkit_fp': [np.random.randint(0, 2, 2048).tolist() for _ in range(n_molecules)],
+            'ecfp_fp': [np.random.randint(0, 2, 1024).tolist() for _ in range(n_molecules)],
+            'functional_groups_fp': [np.random.randint(0, 2, 85).tolist() for _ in range(n_molecules)],
+            'maccs_fp': [np.random.randint(0, 2, 167).tolist() for _ in range(n_molecules)],
             'interaction_fp': [json.dumps(np.random.randint(0, 2, 512).tolist()) for _ in range(n_molecules)],
             'grade': [None] * n_molecules
         }
@@ -95,7 +96,6 @@ class TestEncodingModelCompatibility:
             model_config = {
                 'model_type': model_type,
                 'model_params': {},
-                'use_calibration': model_category == 'classification',
                 'encoding_type': encoding_type
             }
             
@@ -104,8 +104,9 @@ class TestEncodingModelCompatibility:
                 model, metrics = ml_models.train_model(
                     graded_df, 
                     model_config=model_config,
-                    use_morgan_fp=True,
-                    use_rdkit_fp=False,
+                    use_ecfp_fp=True,
+                    use_functional_groups_fp=True,
+                    use_maccs_fp=True,
                     use_interaction_fp=False
                 )
                 
@@ -118,8 +119,9 @@ class TestEncodingModelCompatibility:
                 # Make predictions
                 updated_df = ml_models.update_predictions(
                     df, model, metrics,
-                    use_morgan_fp=True,
-                    use_rdkit_fp=False,
+                    use_ecfp_fp=True,
+                    use_functional_groups_fp=True,
+                    use_maccs_fp=True,
                     use_interaction_fp=False
                 )
                 
@@ -152,7 +154,6 @@ class TestEncodingModelCompatibility:
             model_config = {
                 'model_type': model_type,
                 'model_params': {},
-                'use_calibration': False,
                 'encoding_type': encoding_type
             }
             
@@ -160,8 +161,9 @@ class TestEncodingModelCompatibility:
             model, metrics = ml_models.train_model(
                 graded_df,
                 model_config=model_config,
-                use_morgan_fp=True,
-                use_rdkit_fp=False,
+                use_ecfp_fp=True,
+                use_functional_groups_fp=True,
+                use_maccs_fp=True,
                 use_interaction_fp=False
             )
             
@@ -200,7 +202,6 @@ class TestEncodingModelCompatibility:
             model_config = {
                 'model_type': model_type,
                 'model_params': {},
-                'use_calibration': model_category == 'classification',
                 'encoding_type': encoding_type
             }
             
@@ -209,8 +210,9 @@ class TestEncodingModelCompatibility:
                 model, metrics = ml_models.train_model(
                     graded_df.head(20),  # Use subset for faster testing
                     model_config=model_config,
-                    use_morgan_fp=True,
-                    use_rdkit_fp=False,
+                    use_ecfp_fp=True,
+                    use_functional_groups_fp=True,
+                    use_maccs_fp=True,
                     use_interaction_fp=True
                 )
                 
@@ -222,8 +224,9 @@ class TestEncodingModelCompatibility:
                 updated_df = ml_models.update_predictions(
                     df.head(50),
                     model, metrics,
-                    use_morgan_fp=True,
-                    use_rdkit_fp=False,
+                    use_ecfp_fp=True,
+                    use_functional_groups_fp=True,
+                    use_maccs_fp=True,
                     use_interaction_fp=True
                 )
                 

@@ -277,12 +277,8 @@ def render_ml_model_options() -> Tuple[str, Dict[str, Any]]:
     else:
         model_params = model_defaults
     
-    # Calibration disabled - no UI options needed
-    use_calibration = False
-    
     return model_type, {
-        'model_params': model_params,
-        'use_calibration': use_calibration
+        'model_params': model_params
     }
 
 def render_model_switcher(current_config: Dict[str, Any]) -> Tuple[str, Dict[str, Any], bool]:
@@ -310,7 +306,6 @@ def render_model_switcher(current_config: Dict[str, Any]) -> Tuple[str, Dict[str
     
     # Get current values or defaults
     current_model_type = current_config.get('model_type', 'RandomForest')
-    current_use_calibration = False
     current_model_params = current_config.get('model_params', {})
     
     # Model type selection
@@ -341,21 +336,15 @@ def render_model_switcher(current_config: Dict[str, Any]) -> Tuple[str, Dict[str
     else:
         new_model_params = param_defaults
     
-    # Calibration disabled - no UI options needed
-    new_use_calibration = False
-
-    
     # Check if configuration changed
     config_changed = (
         new_model_type != current_model_type or
-        new_use_calibration != current_use_calibration or
         new_model_params != current_model_params
     )
     
     new_config = {
         'model_type': new_model_type,
-        'model_params': new_model_params,
-        'use_calibration': new_use_calibration
+        'model_params': new_model_params
     }
     
     return new_model_type, new_config, config_changed

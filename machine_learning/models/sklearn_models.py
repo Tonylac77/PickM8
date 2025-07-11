@@ -22,7 +22,7 @@ class SklearnModelWrapper(MLModelBase):
         Initialize sklearn model wrapper.
         
         Args:
-            model_config: Configuration with model_type, model_params, use_calibration
+            model_config: Configuration with model_type, model_params
         """
         super().__init__(model_config)
         self._backend = 'sklearn'
@@ -30,13 +30,11 @@ class SklearnModelWrapper(MLModelBase):
         # Create the sklearn model
         self.model = self._create_sklearn_model(
             model_config['model_type'],
-            model_config.get('model_params', {}),
-            model_config.get('use_calibration', True)
+            model_config.get('model_params', {})
         )
         
 
-    def _create_sklearn_model(self, model_type: str, model_params: Dict[str, Any], 
-                              use_calibration: bool) -> object:
+    def _create_sklearn_model(self, model_type: str, model_params: Dict[str, Any]) -> object:
         """Create sklearn model based on type and parameters."""
         if 'model' in self.model_config:
             base_model = self.model_config['model']

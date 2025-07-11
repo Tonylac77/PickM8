@@ -63,10 +63,10 @@ class TestCoreDataPipeline:
         
         # 2. Compute fingerprints
         mol = df['mol'].iloc[0]
-        morgan_fp = compute_ecfp_fingerprint(mol)
+        ecfp_fp = compute_ecfp_fingerprint(mol)
         macc_fp = compute_maccs_fingerprint(mol)
         
-        assert morgan_fp is not None
+        assert ecfp_fp is not None
         assert macc_fp is not None
         
         # 3. Compute interactions
@@ -102,11 +102,10 @@ class TestCoreDataPipeline:
             mol = df['mol'].iloc[i]
             
             # Compute fingerprints
-            morgan_fp = compute_ecfp_fingerprint(mol)
+            ecfp_fp = compute_ecfp_fingerprint(mol)
             macc_fp = compute_maccs_fingerprint(mol)
             
-            assert morgan_fp is not None
-            assert rdkit_fp is not None
+            assert ecfp_fp is not None
             
             # Compute pose quality
             mol_block = df['mol_block'].iloc[i]
@@ -127,8 +126,9 @@ class TestCoreDataPipeline:
             'id': list(range(n_molecules)),
             'name': [f'mol_{i}' for i in range(n_molecules)],
             'score': np.random.uniform(-10, 0, n_molecules),
-            'morgan_fp': [np.random.randint(0, 2, 1024).tolist() for _ in range(n_molecules)],
-            'rdkit_fp': [np.random.randint(0, 2, 2048).tolist() for _ in range(n_molecules)],
+            'ecfp_fp': [np.random.randint(0, 2, 1024).tolist() for _ in range(n_molecules)],
+            'functional_groups_fp': [np.random.randint(0, 2, 85).tolist() for _ in range(n_molecules)],
+            'maccs_fp': [np.random.randint(0, 2, 167).tolist() for _ in range(n_molecules)],
             'interaction_fp': [json.dumps(np.random.randint(0, 2, 512).tolist()) for _ in range(n_molecules)],
             'grade': [None] * n_molecules
         }
@@ -172,8 +172,9 @@ class TestCoreDataPipeline:
             'name': ['mol_1', 'mol_2', 'mol_3', 'mol_4', 'mol_5'],
             'smiles': ['CCO', 'CC', 'CCC', 'CCCC', 'CCCCC'],
             'score': [-2.5, -3.1, -1.8, -4.2, -2.9],
-            'morgan_fp': [np.random.randint(0, 2, 1024).tolist() for _ in range(5)],
-            'rdkit_fp': [np.random.randint(0, 2, 2048).tolist() for _ in range(5)],
+            'ecfp_fp': [np.random.randint(0, 2, 1024).tolist() for _ in range(5)],
+            'functional_groups_fp': [np.random.randint(0, 2, 85).tolist() for _ in range(5)],
+            'maccs_fp': [np.random.randint(0, 2, 167).tolist() for _ in range(5)],
             'grade': [None, 'A', None, 'B', None],
         }
         

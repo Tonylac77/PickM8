@@ -81,7 +81,7 @@ def render_sidebar_controls():
         has_model = grading.has_trained_model(df)
         
         if has_model:
-            strategies = ["Best Predictions", "Highest Uncertainty"]
+            strategies = ["Best Predictions"]
             default_strategy = "Best Predictions"
         else:
             strategies = ["Random", "Best Score"]

@@ -112,8 +112,7 @@ def create_new_session():
                     'compute_pose_quality': options['compute_pose_quality'],
                     'compute_grade': options.get('compute_grade', False),
                     'model_type': model_type,
-                    'model_params': model_config['model_params'],
-                    'use_calibration': model_config['use_calibration']
+                    'model_params': model_config['model_params']
                 }
                 
                 config = build_session_config(user_options)

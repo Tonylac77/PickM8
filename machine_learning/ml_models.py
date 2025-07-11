@@ -12,7 +12,6 @@ from sklearn.gaussian_process import GaussianProcessClassifier
 from sklearn.gaussian_process.kernels import RBF, Matern
 from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import accuracy_score
-from sklearn.calibration import CalibratedClassifierCV
 
 from machine_learning.models.ml_base import MLModelBase
 from machine_learning.models.sklearn_models import SklearnModelWrapper
@@ -40,9 +39,6 @@ def load_model_config() -> Dict[str, Any]:
     # Fallback defaults if config not found
     default_config = {
         'default_type': 'RandomForest',
-        'calibration_enabled': False,
-        'calibration_method': 'isotonic',
-        'calibration_cv': 3,
         'RandomForest': {
             'n_estimators': 100,
             'max_depth': None,
@@ -138,14 +134,13 @@ def determine_model_category(encoding_type: str) -> str:
     return category_mapping.get(encoding_type, 'classification')
 
 def create_model(model_type: str, model_params: Optional[Dict[str, Any]] = None, 
-                use_calibration: bool = False, encoding_type: Optional[str] = None) -> MLModelBase:
+                encoding_type: Optional[str] = None) -> MLModelBase:
     """
     Factory function to create ML models with proper configuration based on encoding strategy.
     
     Args:
         model_type: Type of model ('RandomForest', 'GaussianProcess', 'LogisticAT')
         model_params: Model-specific parameters (uses config defaults if None)
-        use_calibration: Whether to wrap model with calibration (classification only)
         encoding_type: Encoding strategy to determine model category
         
     Returns:
@@ -165,7 +160,6 @@ def create_model(model_type: str, model_params: Optional[Dict[str, Any]] = None,
     model_config = {
         'model_type': model_type,
         'model_params': model_params,
-        'use_calibration': use_calibration,
         'model_category': model_category,
         'encoding_type': encoding_type
     }
@@ -175,7 +169,6 @@ def create_model(model_type: str, model_params: Optional[Dict[str, Any]] = None,
     ordinal_models = ['LogisticAT']
     
     if model_type in sklearn_models:
-        # Calibration disabled - no longer adding calibration config
         return SklearnModelWrapper(model_config)
         
     elif model_type in ordinal_models:
@@ -229,21 +222,21 @@ def prepare_features_from_dataframe(df: pd.DataFrame,
     # Build valid mask based on selected fingerprint types
     valid_mask = pd.Series([True] * len(df), index=df.index)
     
-    if use_interaction_fp:
+    if use_interaction_fp and 'interaction_fp' in df.columns:
         valid_mask = valid_mask & df['interaction_fp'].notna()
-    if use_e3fp_fp:
+    if use_e3fp_fp and 'e3fp_fp' in df.columns:
         valid_mask = valid_mask & df['e3fp_fp'].notna()
-    if use_ecfp_fp:
+    if use_ecfp_fp and 'ecfp_fp' in df.columns:
         valid_mask = valid_mask & df['ecfp_fp'].notna()
-    if use_electroshape_fp:
+    if use_electroshape_fp and 'electroshape_fp' in df.columns:
         valid_mask = valid_mask & df['electroshape_fp'].notna()
-    if use_functional_groups_fp:
+    if use_functional_groups_fp and 'functional_groups_fp' in df.columns:
         valid_mask = valid_mask & df['functional_groups_fp'].notna()
-    if use_maccs_fp:
+    if use_maccs_fp and 'maccs_fp' in df.columns:
         valid_mask = valid_mask & df['maccs_fp'].notna()
-    if use_pattern_fp:
+    if use_pattern_fp and 'pattern_fp' in df.columns:
         valid_mask = valid_mask & df['pattern_fp'].notna()
-    if use_pharmacophore_fp:
+    if use_pharmacophore_fp and 'pharmacophore_fp' in df.columns:
         valid_mask = valid_mask & df['pharmacophore_fp'].notna()
     
     valid_df = df[valid_mask].copy()
@@ -256,7 +249,7 @@ def prepare_features_from_dataframe(df: pd.DataFrame,
         feature_vector = []
         
         # Add interaction fingerprints
-        if use_interaction_fp and row['interaction_fp'] is not None:
+        if use_interaction_fp and 'interaction_fp' in valid_df.columns and row['interaction_fp'] is not None:
             try:
                 ifp_data = json.loads(row['interaction_fp'])
                 if isinstance(ifp_data, list):
@@ -267,25 +260,25 @@ def prepare_features_from_dataframe(df: pd.DataFrame,
                 pass
         
         # Add scikit-fingerprints features
-        if use_e3fp_fp and row['e3fp_fp'] is not None:
+        if use_e3fp_fp and 'e3fp_fp' in valid_df.columns and row['e3fp_fp'] is not None:
             feature_vector.extend([float(x) for x in row['e3fp_fp']])
         
-        if use_ecfp_fp and row['ecfp_fp'] is not None:
+        if use_ecfp_fp and 'ecfp_fp' in valid_df.columns and row['ecfp_fp'] is not None:
             feature_vector.extend([float(x) for x in row['ecfp_fp']])
         
-        if use_electroshape_fp and row['electroshape_fp'] is not None:
+        if use_electroshape_fp and 'electroshape_fp' in valid_df.columns and row['electroshape_fp'] is not None:
             feature_vector.extend([float(x) for x in row['electroshape_fp']])
         
-        if use_functional_groups_fp and row['functional_groups_fp'] is not None:
+        if use_functional_groups_fp and 'functional_groups_fp' in valid_df.columns and row['functional_groups_fp'] is not None:
             feature_vector.extend([float(x) for x in row['functional_groups_fp']])
         
-        if use_maccs_fp and row['maccs_fp'] is not None:
+        if use_maccs_fp and 'maccs_fp' in valid_df.columns and row['maccs_fp'] is not None:
             feature_vector.extend([float(x) for x in row['maccs_fp']])
         
-        if use_pattern_fp and row['pattern_fp'] is not None:
+        if use_pattern_fp and 'pattern_fp' in valid_df.columns and row['pattern_fp'] is not None:
             feature_vector.extend([float(x) for x in row['pattern_fp']])
         
-        if use_pharmacophore_fp and row['pharmacophore_fp'] is not None:
+        if use_pharmacophore_fp and 'pharmacophore_fp' in valid_df.columns and row['pharmacophore_fp'] is not None:
             feature_vector.extend([float(x) for x in row['pharmacophore_fp']])
         
         features.append(feature_vector)
@@ -343,7 +336,7 @@ def train_model(df: pd.DataFrame,
     
     Args:
         df: Molecules DataFrame with grades
-        model_config: Configuration dict with model_type, model_params, use_calibration, encoding_type
+        model_config: Configuration dict with model_type, model_params, encoding_type
         use_interaction_fp: Include interaction fingerprints
         use_e3fp_fp: Include E3FP fingerprints
         use_ecfp_fp: Include ECFP fingerprints
@@ -406,12 +399,10 @@ def train_model(df: pd.DataFrame,
         logger.info("No model config provided, using defaults")
         model_type = 'RandomForest'
         model_params = None
-        use_calibration = False
         encoding_type = None  # Will use config default
     else:
         model_type = model_config.get('model_type', 'RandomForest')
         model_params = model_config.get('model_params')
-        use_calibration = model_config.get('use_calibration', False)
         encoding_type = model_config.get('encoding_type')
     
     # Force single-threaded execution for sklearn models
@@ -430,10 +421,10 @@ def train_model(df: pd.DataFrame,
     
     # Create model using factory function with encoding type
     try:
-        model = create_model(model_type, model_params, use_calibration, encoding_type)
+        model = create_model(model_type, model_params, encoding_type)
     except Exception as e:
         logger.error(f"Error creating {model_type} model: {e}, falling back to RandomForest")
-        model = create_model('RandomForest', None, use_calibration, encoding_type)
+        model = create_model('RandomForest', None, encoding_type)
         model_type = 'RandomForest'
     
     # Add output_type to model config for AutoParty
@@ -472,7 +463,6 @@ def train_model(df: pd.DataFrame,
         'n_features': X.shape[1] if len(X) > 0 else 0,
         'label_mapping': label_mapping,
         'model_type': model_type,
-        'use_calibration': use_calibration,
         'encoding_type': encoding_type,
         'ml_strategy': get_ml_strategy(encoding_type),
         'feature_metadata': feature_metadata

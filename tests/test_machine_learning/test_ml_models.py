@@ -23,8 +23,9 @@ class TestMLPipeline:
             'id': list(range(n_molecules)),
             'name': [f'mol_{i}' for i in range(n_molecules)],
             'score': np.random.uniform(-10, 0, n_molecules),
-            'morgan_fp': [np.random.randint(0, 2, 1024).tolist() for _ in range(n_molecules)],
-            'rdkit_fp': [np.random.randint(0, 2, 2048).tolist() for _ in range(n_molecules)],
+            'ecfp_fp': [np.random.randint(0, 2, 1024).tolist() for _ in range(n_molecules)],
+            'functional_groups_fp': [np.random.randint(0, 2, 85).tolist() for _ in range(n_molecules)],
+            'maccs_fp': [np.random.randint(0, 2, 167).tolist() for _ in range(n_molecules)],
             'interaction_fp': [json.dumps(np.random.randint(0, 2, 512).tolist()) for _ in range(n_molecules)],
             'grade': [None] * n_molecules
         }
@@ -141,8 +142,9 @@ class TestCurrentModelIntegration:
             'id': list(range(n_molecules)),
             'name': [f'mol_{i}' for i in range(n_molecules)],
             'score': np.random.uniform(-10, 0, n_molecules),
-            'morgan_fp': [np.random.randint(0, 2, 1024).tolist() for _ in range(n_molecules)],
-            'rdkit_fp': [np.random.randint(0, 2, 2048).tolist() for _ in range(n_molecules)],
+            'ecfp_fp': [np.random.randint(0, 2, 1024).tolist() for _ in range(n_molecules)],
+            'functional_groups_fp': [np.random.randint(0, 2, 85).tolist() for _ in range(n_molecules)],
+            'maccs_fp': [np.random.randint(0, 2, 167).tolist() for _ in range(n_molecules)],
             'interaction_fp': [json.dumps(np.random.randint(0, 2, 512).tolist()) for _ in range(n_molecules)],
             'grade': [None] * n_molecules
         }

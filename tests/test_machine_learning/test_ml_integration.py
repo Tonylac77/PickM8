@@ -19,8 +19,9 @@ class TestMLIntegration:
         np.random.seed(42)
         df = pd.DataFrame({
             'id': [1, 2, 3, 4, 5, 6, 7, 8, 9],
-            'morgan_fp': [np.random.randint(0, 2, 1024).tolist() for _ in range(9)],
-            'rdkit_fp': [np.random.randint(0, 2, 2048).tolist() for _ in range(9)],
+            'ecfp_fp': [np.random.randint(0, 2, 1024).tolist() for _ in range(9)],
+            'functional_groups_fp': [np.random.randint(0, 2, 85).tolist() for _ in range(9)],
+            'maccs_fp': [np.random.randint(0, 2, 167).tolist() for _ in range(9)],
             'interaction_fp': [json.dumps(np.random.randint(0, 2, 512).tolist()) for _ in range(9)],
             'grade': ['A', 'B', 'C', 'A', 'B', 'C', 'A', 'B', 'C'],
             'prediction': [None] * 9,
