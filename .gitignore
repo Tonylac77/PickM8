@@ -20,3 +20,8 @@ prepared_receptor_complete.csv
 prepared_receptor_complete.sdf
 prepared_receptor_complete.zip
 GEMINI.md
+test_data/GRADE_test.csv
+test_data/test_session/metadata.json
+test_data/test_session/molecules.pkl
+benchmark_script.py
+pages/3_🎯_Active_Learning.py
