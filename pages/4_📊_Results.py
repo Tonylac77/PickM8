@@ -13,8 +13,9 @@ from pathlib import Path
 from rdkit.Chem import PandasTools
 import tempfile
 
-# Import from new flat structure
-from data import sessions, molecules
+# Import from new modular structure
+from sessions import sessions
+from data_io import molecules
 from analysis import grading, statistics
 
 st.set_page_config(page_title="Results - PickM8", page_icon="media/pickm8_white_logoonly.png", layout="wide")

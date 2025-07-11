@@ -4,11 +4,12 @@ import pandas as pd
 import logging
 from typing import Dict, Any
 
-# Import from new flat structure
-from data import sessions, molecules
-from active_learning import ml_models
+# Import from new modular structure
+from sessions import sessions
+from data_io import molecules
+from machine_learning import ml_models
 from analysis import grading, statistics
-from ui_components import molecule_viewer, progress_displays, forms
+from ui.components import molecule_viewer, progress_displays, forms
 
 logger = logging.getLogger(__name__)
 
@@ -108,42 +109,6 @@ def render_sidebar_controls():
     # ML Configuration
     st.subheader("🤖 Machine Learning")
     
-    # Feature Selection
-    st.markdown("**🧬 Feature Selection**")
-    
-    # Initialize fingerprint selection in session state
-    if 'use_morgan_fp' not in st.session_state:
-        st.session_state.use_morgan_fp = True
-    if 'use_rdkit_fp' not in st.session_state:
-        st.session_state.use_rdkit_fp = True
-    if 'use_interaction_fp' not in st.session_state:
-        st.session_state.use_interaction_fp = True
-    
-    # Fingerprint selection checkboxes
-    col1, col2 = st.columns(2)
-    with col1:
-        st.session_state.use_morgan_fp = st.checkbox(
-            "Morgan FP", 
-            value=st.session_state.use_morgan_fp,
-            help="Circular molecular fingerprints"
-        )
-        st.session_state.use_rdkit_fp = st.checkbox(
-            "RDKit FP", 
-            value=st.session_state.use_rdkit_fp,
-            help="RDKit molecular fingerprints"
-        )
-    with col2:
-        st.session_state.use_interaction_fp = st.checkbox(
-            "Interaction FP", 
-            value=st.session_state.use_interaction_fp,
-            help="Protein-ligand interaction fingerprints"
-        )
-    
-    # Ensure at least one fingerprint is selected
-    if not (st.session_state.use_morgan_fp or st.session_state.use_rdkit_fp or st.session_state.use_interaction_fp):
-        st.error("⚠️ At least one fingerprint type must be selected")
-    
-    st.divider()
     
     # Get current model configuration
     metadata = st.session_state.get('metadata', {})
@@ -193,17 +158,15 @@ def render_sidebar_controls():
         st.caption("❌ Probability calibration disabled")
     
     # Training buttons
-    fingerprint_disabled = not (st.session_state.use_morgan_fp or st.session_state.use_rdkit_fp or st.session_state.use_interaction_fp)
-    
     if st.button("🚀 Train Model", 
-                 disabled=stats['graded_count'] < 3 or fingerprint_disabled, 
+                 disabled=stats['graded_count'] < 3, 
                  use_container_width=True):
         train_model(df)
     
         # Show retrain with new config button if config changed but not yet applied
     has_model = grading.has_trained_model(df)
     if has_model and st.button("🔄 Retrain with New Config", 
-                               disabled=stats['graded_count'] < 3 or fingerprint_disabled, 
+                               disabled=stats['graded_count'] < 3, 
                                use_container_width=True):
         train_model_with_config_update(df)
 
@@ -224,23 +187,13 @@ def render_sidebar_controls():
 
 def render_grading_interface(df: pd.DataFrame, metadata: Dict[str, Any]):
     """Render the main grading interface."""
-    # Get current molecule
-    if 'current_idx' not in st.session_state:
-        st.session_state.current_idx = 0
-
-    # Filter molecules using selected strategy
+    # Get best ungraded molecule using selected strategy
     strategy = st.session_state.get('selection_strategy', 'Best Score')
-    filtered_df = grading.get_molecules_by_strategy(df, strategy, metadata)
+    current_mol = grading.get_best_ungraded_molecule(df, strategy, metadata)
 
-    if len(filtered_df) == 0:
+    if current_mol is None:
         st.info("All molecules have been graded!")
         return
-
-    # Ensure index is valid
-    if st.session_state.current_idx >= len(filtered_df):
-        st.session_state.current_idx = 0
-
-    current_mol = filtered_df.iloc[st.session_state.current_idx]
 
     # Sleek unified control bar
     st.markdown("""
@@ -269,25 +222,16 @@ def render_grading_interface(df: pd.DataFrame, metadata: Dict[str, Any]):
         'D': {'color': '#dc3545', 'desc': 'Poor', 'emoji': '👎'}
     }
 
-    # Single row with 7 columns for perfect alignment
-    ctrl_cols = st.columns(7, gap="small")
+    # Single row with 5 columns for grade buttons and progress
+    ctrl_cols = st.columns(5, gap="small")
     
-    # Previous button
-    with ctrl_cols[0]:
-        if st.button("⬅️ Prev", 
-                    disabled=st.session_state.current_idx == 0,
-                    use_container_width=True,
-                    help="Previous molecule"):
-            st.session_state.current_idx -= 1
-            st.rerun()
-    
-    # Grade buttons (columns 1-4)
+    # Grade buttons (columns 0-3)
     for i, (grade, info) in enumerate(grade_info.items()):
-        with ctrl_cols[i + 1]:
+        with ctrl_cols[i]:
             # Individual grade button styling
             st.markdown(f"""
             <style>
-            div[data-testid="column"]:nth-child({i+2}) .stButton > button {{
+            div[data-testid="column"]:nth-child({i+1}) .stButton > button {{
                 background-color: {info['color']} !important;
                 color: white !important;
             }}
@@ -309,29 +253,16 @@ def render_grading_interface(df: pd.DataFrame, metadata: Dict[str, Any]):
                     st.session_state.metadata
                 )
 
-                # Move to next molecule
-                if st.session_state.current_idx < len(filtered_df) - 1:
-                    st.session_state.current_idx += 1
-                else:
-                    st.session_state.current_idx = 0
-
                 st.rerun()
     
-    # Next button
-    with ctrl_cols[5]:
-        if st.button("Next ➡️", 
-                    disabled=st.session_state.current_idx >= len(filtered_df) - 1,
-                    use_container_width=True,
-                    help="Next molecule"):
-            st.session_state.current_idx += 1
-            st.rerun()
-    
     # Progress indicator
-    with ctrl_cols[6]:
-        progress_pct = (st.session_state.current_idx + 1) / len(filtered_df)
+    with ctrl_cols[4]:
+        # Get current ungraded count for progress display
+        filtered_df = grading.get_molecules_by_strategy(df, strategy, metadata)
+        progress_pct = 1 / len(filtered_df) if len(filtered_df) > 0 else 1
         st.progress(progress_pct)
-        remaining = len(filtered_df) - st.session_state.current_idx - 1
-        st.caption(f"{st.session_state.current_idx + 1}/{len(filtered_df)} • {remaining} left")
+        remaining = len(filtered_df) - 1
+        st.caption(f"1/{len(filtered_df)} • {remaining} left")
 
     # Main content row - 3D | 2D | Properties
     col1, col2, col3 = st.columns([3, 1, 1])
@@ -370,16 +301,12 @@ def train_model(df: pd.DataFrame):
             config = metadata.get('config', {})
             model_config = config.get('model_config')
             
-            # Get fingerprint selection from session state
-            use_morgan_fp = st.session_state.get('use_morgan_fp', True)
-            use_rdkit_fp = st.session_state.get('use_rdkit_fp', True)
-            use_interaction_fp = st.session_state.get('use_interaction_fp', True)
-            
-            # Train model with configuration and fingerprint selection
-            model, metrics = ml_models.train_model(df, model_config, use_morgan_fp, use_rdkit_fp, use_interaction_fp)
+            # Use default fingerprint configuration (ECFP, FunctionalGroups, MACCS, Interaction)
+            # Train model with default fingerprint selection
+            model, metrics = ml_models.train_model(df, model_config)
 
-            # Update predictions with fingerprint selection
-            df_updated = ml_models.update_predictions(df, model, metrics, use_morgan_fp, use_rdkit_fp, use_interaction_fp)
+            # Update predictions with trained model
+            df_updated = ml_models.update_predictions(df, model, metrics)
 
             # Store label mapping in metadata for prediction display
             if 'metadata' not in st.session_state:
@@ -418,22 +345,17 @@ def train_model_with_config_update(df: pd.DataFrame):
             config = metadata.get('config', {})
             model_config = config.get('model_config')
             
-            # Get fingerprint selection from session state
-            use_morgan_fp = st.session_state.get('use_morgan_fp', True)
-            use_rdkit_fp = st.session_state.get('use_rdkit_fp', True)
-            use_interaction_fp = st.session_state.get('use_interaction_fp', True)
-            
             # Clear existing predictions before retraining
             df_clear = df.copy()
             df_clear['prediction'] = None
             df_clear['prediction_uncertainty'] = None
             df_clear['prediction_timestamp'] = None
             
-            # Train model with new configuration and fingerprint selection
-            model, metrics = ml_models.train_model(df_clear, model_config, use_morgan_fp, use_rdkit_fp, use_interaction_fp)
+            # Train model with new configuration using default fingerprint selection
+            model, metrics = ml_models.train_model(df_clear, model_config)
 
-            # Update predictions with new model and fingerprint selection
-            df_updated = ml_models.update_predictions(df_clear, model, metrics, use_morgan_fp, use_rdkit_fp, use_interaction_fp)
+            # Update predictions with new model
+            df_updated = ml_models.update_predictions(df_clear, model, metrics)
 
             # Store label mapping in metadata for prediction display
             if 'metadata' not in st.session_state:

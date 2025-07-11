@@ -3,10 +3,13 @@ import streamlit as st
 import logging
 from pathlib import Path
 
-# Import from new flat structure
-from data import sessions, molecules, fingerprints, interactions
+# Import from new modular structure
+from sessions import sessions
+from data_io import molecules
+from features import fingerprints, interactions
 from analysis import grading, pose_quality
-from ui_components import forms, progress_displays
+from ui.components import forms, progress_displays
+from utils.config import build_session_config, ConfigurationError
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -100,54 +103,66 @@ def create_new_session():
 
     # Process button
     if st.button("🚀 Create Session", disabled=not validation['valid']):
-        with st.spinner("Processing molecules..."):
-            # Create processing config
-            config = {
-                'fingerprint_config': {
-                    'compute_morgan': 'morgan' in options['fingerprint_types'],
-                    'compute_rdkit': 'rdkit' in options['fingerprint_types'],
-                    'compute_mapchiral': 'mapchiral' in options['fingerprint_types']
-                },
-                'interaction_config': {
-                    'type': options['interaction_type']
-                },
-                'pose_config': {
-                    'enabled': options['compute_pose_quality']
-                },
-                'compute_interactions': True,
-                'compute_pose_quality': options['compute_pose_quality'],
-                'model_config': {
+        try:
+            with st.spinner("Processing molecules..."):
+                # Build configuration from user options and config.yaml
+                user_options = {
+                    'fingerprint_types': options['fingerprint_types'],
+                    'interaction_type': options['interaction_type'],
+                    'compute_pose_quality': options['compute_pose_quality'],
+                    'compute_grade': options.get('compute_grade', False),
                     'model_type': model_type,
                     'model_params': model_config['model_params'],
                     'use_calibration': model_config['use_calibration']
                 }
-            }
+                
+                config = build_session_config(user_options)
 
-            # Create session
-            session_id, df, metadata = sessions.create_session(
-                protein_file, ligand_file, score_label, score_direction, config
-            )
+                # Create session
+                session_id, df, metadata = sessions.create_session(
+                    protein_file, ligand_file, score_label, score_direction, config
+                )
 
-            # Save session
-            if sessions.save_session(session_id, df, metadata):
-                st.success(f"✅ Session created successfully!")
-                st.session_state.session_id = session_id
-                st.session_state.molecules_df = df
-                st.session_state.metadata = metadata
+                # Save session
+                if sessions.save_session(session_id, df, metadata):
+                    st.success(f"✅ Session created successfully!")
+                    st.session_state.session_id = session_id
+                    st.session_state.molecules_df = df
+                    st.session_state.metadata = metadata
 
-                # Show summary
-                st.info(f"Processed {len(df)} molecules")
+                    # Show summary
+                    st.info(f"Processed {len(df)} molecules")
 
-                # Navigation buttons
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("🎯 Go to Active Learning"):
-                        st.switch_page("pages/3_🎯_Active_Learning.py")
-                with col2:
-                    if st.button("📊 View Results"):
-                        st.switch_page("pages/4_📊_Results.py")
-            else:
-                st.error("Failed to save session")
+                    # Navigation buttons
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("🎯 Go to Active Learning"):
+                            st.switch_page("pages/3_🎯_Active_Learning.py")
+                    with col2:
+                        if st.button("📊 View Results"):
+                            st.switch_page("pages/4_📊_Results.py")
+                else:
+                    st.error("Failed to save session")
+        except ConfigurationError as e:
+            st.error(f"❌ Configuration Error: {str(e)}")
+            logger.error(f"Configuration error: {e}")
+            with st.expander("📋 Configuration Help"):
+                st.info("💡 Configuration troubleshooting:\n" + 
+                       "• Check that config.yaml exists in the project root\n" + 
+                       "• Verify all required sections are present in config.yaml\n" + 
+                       "• Ensure YAML syntax is correct (no tabs, proper indentation)\n" + 
+                       "• Check the config.yaml file for missing or malformed sections")
+        except Exception as e:
+            st.error(f"❌ Session creation failed: {str(e)}")
+            logger.error(f"Session creation error: {e}", exc_info=True)
+            # Show more detailed error information in an expander
+            with st.expander("📋 Error Details"):
+                st.code(str(e))
+                st.info("💡 Common solutions:\n" + 
+                       "• Check that all required dependencies are installed\n" + 
+                       "• Verify that protein and ligand files are valid\n" + 
+                       "• Try reducing the number of fingerprint types selected\n" + 
+                       "• Check the application logs for more details")
 
 def load_existing_session():
     """Handle loading existing sessions."""
