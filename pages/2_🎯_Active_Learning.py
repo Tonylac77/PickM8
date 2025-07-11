@@ -152,22 +152,6 @@ def render_sidebar_controls():
                                    use_container_width=True):
             train_model_with_config_update(df)
 
-    # Navigation buttons
-    st.divider()
-    st.markdown("### Navigation")
-    
-    if st.button("🔧 Setup", use_container_width=True):
-        st.switch_page("pages/1_🔧_Setup.py")
-    
-    if st.button("📊 Results", use_container_width=True):
-        st.switch_page("pages/3_📊_Results.py")
-    
-    if st.button("⬇️ Export", use_container_width=True):
-        st.switch_page("pages/4_⬇️_Export.py")
-    
-    if st.button("🏠 Main Page", use_container_width=True):
-        st.switch_page("main.py")
-
 def render_grading_interface(df: pd.DataFrame, metadata: Dict[str, Any]):
     """Render the main grading interface."""
     

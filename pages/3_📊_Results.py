@@ -307,22 +307,6 @@ def main():
     if session_name.endswith('.pdb'):
         session_name = session_name[:-4]
     
-    # Add navigation to sidebar
-    with st.sidebar:
-        st.markdown("### Navigation")
-        
-        if st.button("🔧 Setup", use_container_width=True):
-            st.switch_page("pages/1_🔧_Setup.py")
-        
-        if st.button("🎯 Active Learning", use_container_width=True):
-            st.switch_page("pages/2_🎯_Active_Learning.py")
-        
-        if st.button("⬇️ Export", use_container_width=True):
-            st.switch_page("pages/4_⬇️_Export.py")
-        
-        if st.button("🏠 Main Page", use_container_width=True):
-            st.switch_page("main.py")
-    
     # Main content tabs
     tab1, tab2, tab3 = st.tabs(["Active Learning", "Grades", "Predictions"])
     

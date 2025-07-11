@@ -232,22 +232,6 @@ def main():
     if session_name.endswith('.pdb'):
         session_name = session_name[:-4]
     
-    # Add navigation to sidebar
-    with st.sidebar:
-        st.markdown("### Navigation")
-        
-        if st.button("🔧 Setup", use_container_width=True):
-            st.switch_page("pages/1_🔧_Setup.py")
-        
-        if st.button("🎯 Active Learning", use_container_width=True):
-            st.switch_page("pages/2_🎯_Active_Learning.py")
-        
-        if st.button("📊 Results", use_container_width=True):
-            st.switch_page("pages/3_📊_Results.py")
-        
-        if st.button("🏠 Main Page", use_container_width=True):
-            st.switch_page("main.py")
-    
     # Display export summary
     display_export_summary(molecules_df)
     
