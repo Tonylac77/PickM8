@@ -96,26 +96,6 @@ def filter_and_sort_molecules(
         filtered_df = filtered_df.sort_values('grade_timestamp', ascending=False, na_position='last')
     elif sort_by == 'random':
         filtered_df = filtered_df.sample(frac=1.0, random_state=42).reset_index(drop=True)
-    elif sort_by == 'best_prediction' and 'prediction' in filtered_df.columns:
-        # Handle both new grade string predictions and legacy numeric predictions
-        predictions = filtered_df['prediction'].dropna()
-        
-        if len(predictions) > 0:
-            # Check if predictions are grade strings (new system)
-            sample_pred = predictions.iloc[0]
-            if isinstance(sample_pred, str) and sample_pred in ['A', 'B', 'C', 'D']:
-                # New system: predictions are grade strings, sort alphabetically (A < B < C < D)
-                filtered_df = filtered_df.sort_values('prediction', ascending=True, na_position='last')
-            else:
-                # Legacy system: predictions are numeric (lower values = better grades)
-                try:
-                    # Try to convert to numeric for proper sorting
-                    filtered_df['_prediction_numeric'] = pd.to_numeric(filtered_df['prediction'], errors='coerce')
-                    filtered_df = filtered_df.sort_values('_prediction_numeric', ascending=True, na_position='last')
-                    filtered_df = filtered_df.drop(columns=['_prediction_numeric'])
-                except:
-                    # Fallback to string sorting
-                    filtered_df = filtered_df.sort_values('prediction', ascending=True, na_position='last')
 
     return filtered_df.reset_index(drop=True)
 
@@ -159,6 +139,93 @@ def get_best_ungraded_molecule(df: pd.DataFrame, strategy: str, metadata: Option
     """
     filtered_df = get_molecules_by_strategy(df, strategy, metadata)
     return filtered_df.iloc[0] if len(filtered_df) > 0 else None
+
+def get_best_predicted_ungraded_molecule(
+    df: pd.DataFrame, 
+    metadata: Optional[Dict[str, Any]] = None
+) -> Optional[pd.Series]:
+    """
+    Get the best ungraded molecule based on ML predictions.
+    
+    Priority order: A > B > C > D
+    Tiebreaker: score (based on score_direction in metadata)
+    
+    Args:
+        df: Molecules DataFrame
+        metadata: Session metadata containing score_direction
+        
+    Returns:
+        Best ungraded molecule with prediction, or None if none exist
+    """
+    # Filter to ungraded molecules with predictions
+    candidates = df[df['grade'].isna() & df['prediction'].notna()].copy()
+    
+    if len(candidates) == 0:
+        return None
+    
+    # Create grade priority (A=1, B=2, C=3, D=4 for sorting)
+    grade_priority = {'A': 1, 'B': 2, 'C': 3, 'D': 4}
+    candidates['_grade_priority'] = candidates['prediction'].map(grade_priority).fillna(999)
+    
+    # Determine score sorting direction
+    score_ascending = True  # Default: lower is better
+    if metadata and metadata.get('score_direction') == 'Higher is better':
+        score_ascending = False
+    
+    # Sort by grade priority first, then by score
+    candidates = candidates.sort_values(
+        by=['_grade_priority', 'score'],
+        ascending=[True, score_ascending]
+    )
+    
+    # Return the best candidate (without the temporary column)
+    best_molecule = candidates.iloc[0].drop('_grade_priority')
+    
+    logger.debug(f"Selected molecule {best_molecule['name']} with prediction "
+                f"{best_molecule['prediction']} and score {best_molecule['score']}")
+    
+    return best_molecule
+
+def is_review_mode(df: pd.DataFrame) -> bool:
+    """Check if all molecules have been graded (review mode)."""
+    return df['grade'].notna().all()
+
+def get_molecule_for_review(df: pd.DataFrame, index: int, metadata: Optional[Dict[str, Any]] = None) -> Optional[pd.Series]:
+    """
+    Get molecule at specific index for review mode.
+    Molecules are ordered by grade (A>B>C>D) then by score.
+    
+    Args:
+        df: Molecules DataFrame
+        index: Index in the sorted list (0-based)
+        metadata: Session metadata containing score_direction
+        
+    Returns:
+        Molecule at the specified index, or None if index out of bounds
+    """
+    # Sort by grade first (A>B>C>D), then by score
+    sorted_df = df.copy()
+    
+    # Create grade order for sorting
+    grade_order = {'A': 0, 'B': 1, 'C': 2, 'D': 3}
+    sorted_df['_grade_order'] = sorted_df['grade'].map(grade_order).fillna(999)
+    
+    # Determine score sorting
+    score_ascending = True  # Default: lower is better
+    if metadata and metadata.get('score_direction') == 'Higher is better':
+        score_ascending = False
+    
+    # Sort by grade order, then score
+    sorted_df = sorted_df.sort_values(
+        by=['_grade_order', 'score'],
+        ascending=[True, score_ascending]
+    )
+    sorted_df = sorted_df.drop(columns=['_grade_order'])
+    
+    # Return molecule at index
+    if 0 <= index < len(sorted_df):
+        return sorted_df.iloc[index]
+    return None
 
 def reset_all_grades(df: pd.DataFrame) -> pd.DataFrame:
     """
