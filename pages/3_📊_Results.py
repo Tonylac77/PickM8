@@ -10,8 +10,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 from pathlib import Path
-from rdkit.Chem import PandasTools
-import tempfile
 
 # Import from new modular structure
 from sessions import sessions
@@ -275,158 +273,6 @@ def display_summary_statistics(df: pd.DataFrame):
             st.metric("Clash-Free Poses", clash_free)
 
 
-def export_interface(df: pd.DataFrame, session_id: str, session_name: str):
-    """Export interface for results."""
-    st.subheader("📁 Export Results")
-    
-    # Basic validation
-    if df.empty:
-        st.error("No data to export")
-        return
-    
-    st.info(f"Ready to export {len(df)} molecules")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("#### Individual Exports")
-        
-        # CSV export
-        if st.button("📄 Export All Data (CSV)", use_container_width=True):
-            csv_data = df.to_csv(index=False)
-            st.download_button(
-                label="Download CSV",
-                data=csv_data,
-                file_name=f"{session_name}_complete.csv",
-                mime="text/csv"
-            )
-        
-        # SDF export
-        if st.button("🧪 Export Molecules (SDF)", use_container_width=True):
-            if 'mol_block' in df.columns and 'mol' in df.columns:
-                export_df = df.copy()
-                
-                # Columns to export, similar to CSV
-                export_cols = [
-                    'id', 'name', 'smiles', 'score', 'grade', 'grade_timestamp',
-                    'prediction', 'clashes', 'strain_energy',
-                    'num_interactions'
-                ]
-                
-                # Filter to columns that actually exist in the DataFrame
-                available_cols = [col for col in export_cols if col in export_df.columns]
-                
-                # Ensure mol column is present
-                if 'mol' not in export_df.columns:
-                    st.error("'mol' column not found, cannot generate SDF.")
-                    return
-
-                # Use a temporary file to write SDF data
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".sdf", mode='w') as tmpfile:
-                    PandasTools.WriteSDF(export_df, tmpfile.name, molColName='mol', idName='id', properties=available_cols)
-                    tmpfile.seek(0)
-                    sdf_data = tmpfile.read()
-
-                st.download_button(
-                    label="Download SDF",
-                    data=sdf_data,
-                    file_name=f"{session_name}_complete.sdf",
-                    mime="chemical/x-mdl-sdfile"
-                )
-            else:
-                st.error("No molecular structure data available for SDF export.")
-        
-        # Graded molecules only
-        graded_count = df['grade'].notna().sum()
-        if graded_count > 0:
-            if st.button(f"⭐ Export Graded Only ({graded_count} molecules)", use_container_width=True):
-                graded_df = grading.filter_and_sort_molecules(df, mode='graded')
-                csv_data = graded_df.to_csv(index=False)
-                st.download_button(
-                    label="Download Graded CSV",
-                    data=csv_data,
-                    file_name=f"{session_name}_graded.csv",
-                    mime="text/csv"
-                )
-    
-    with col2:
-        st.markdown("#### Analysis Reports")
-        
-        # Predictions summary
-        pred_count = df['prediction'].notna().sum()
-        if pred_count > 0:
-            if st.button(f"🤖 Predictions Summary ({pred_count} predictions)", use_container_width=True):
-                pred_df = df[df['prediction'].notna()][['name', 'score', 'prediction', 'grade']]
-                pred_df = pred_df.dropna(subset=['prediction'])
-                csv_data = pred_df.to_csv(index=False)
-                st.download_button(
-                    label="Download Predictions Report",
-                    data=csv_data,
-                    file_name=f"{session_name}_predictions.csv",
-                    mime="text/csv"
-                )
-        
-        # Pose quality report
-        if 'clashes' in df.columns or 'strain_energy' in df.columns:
-            if st.button("🏗️ Pose Quality Report", use_container_width=True):
-                pose_cols = [col for col in ['name', 'clashes', 'strain_energy', 'posecheck_score'] if col in df.columns]
-                pose_df = df[pose_cols]
-                csv_data = pose_df.to_csv(index=False)
-                st.download_button(
-                    label="Download Pose Quality Report",
-                    data=csv_data,
-                    file_name=f"{session_name}_pose_quality.csv",
-                    mime="text/csv"
-                )
-        
-        # Interaction analysis
-        interaction_count = df['interactions'].notna().sum()
-        if interaction_count > 0:
-            if st.button(f"🔗 Interaction Analysis ({interaction_count} molecules)", use_container_width=True):
-                interaction_cols = [col for col in ['name', 'interactions', 'num_interactions'] if col in df.columns]
-                interaction_df = df[df['interactions'].notna()][interaction_cols]
-                csv_data = interaction_df.to_csv(index=False)
-                st.download_button(
-                    label="Download Interaction Analysis",
-                    data=csv_data,
-                    file_name=f"{session_name}_interactions.csv",
-                    mime="text/csv"
-                )
-    
-    st.divider()
-    
-    # Complete export package
-    st.markdown("#### Complete Export Package")
-    if st.button("📦 Create Complete Export Package", type="primary", use_container_width=True):
-        import zipfile
-        import io
-        
-        # Create ZIP in memory
-        zip_buffer = io.BytesIO()
-        
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            # Add main CSV
-            zipf.writestr(f"{session_name}_complete.csv", df.to_csv(index=False))
-            
-            # Add graded molecules if available
-            if df['grade'].notna().any():
-                graded_df = grading.filter_and_sort_molecules(df, mode='graded')
-                zipf.writestr(f"{session_name}_graded.csv", graded_df.to_csv(index=False))
-            
-            # Add predictions if available
-            if df['prediction'].notna().any():
-                pred_df = df[df['prediction'].notna()]
-                zipf.writestr(f"{session_name}_predictions.csv", pred_df.to_csv(index=False))
-        
-        st.download_button(
-            label="Download Complete Package (ZIP)",
-            data=zip_buffer.getvalue(),
-            file_name=f"{session_name}_complete.zip",
-            mime="application/zip"
-        )
-        
-        st.success("✅ Export package created successfully!")
-
 
 def main():
     """Main Results interface."""
@@ -465,14 +311,20 @@ def main():
     with st.sidebar:
         st.markdown("### Navigation")
         
+        if st.button("🔧 Setup", use_container_width=True):
+            st.switch_page("pages/1_🔧_Setup.py")
+        
         if st.button("🎯 Active Learning", use_container_width=True):
-            st.switch_page("pages/3_🎯_Active_Learning.py")
+            st.switch_page("pages/2_🎯_Active_Learning.py")
+        
+        if st.button("⬇️ Export", use_container_width=True):
+            st.switch_page("pages/4_⬇️_Export.py")
         
         if st.button("🏠 Main Page", use_container_width=True):
             st.switch_page("main.py")
     
     # Main content tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["Active Learning", "Grades", "Predictions", "Export"])
+    tab1, tab2, tab3 = st.tabs(["Active Learning", "Grades", "Predictions"])
     
     with tab1:
         st.subheader("Active Learning Results")
@@ -542,9 +394,6 @@ def main():
                 use_container_width=True,
                 hide_index=True
             )
-    
-    with tab4:
-        export_interface(molecules_df, session_id, session_name)
 
 
 if __name__ == "__main__":
