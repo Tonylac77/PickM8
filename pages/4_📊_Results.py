@@ -109,56 +109,28 @@ def create_prediction_analysis_plots(df: pd.DataFrame):
     if len(pred_df) == 0:
         st.info("No predictions available. Train a model first.")
         return
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Prediction distribution
-        fig_hist = px.histogram(
-            pred_df, x='prediction',
-            title='Prediction Distribution',
-            nbins=20
-        )
-        st.plotly_chart(fig_hist, use_container_width=True)
-    
-    with col2:
-        # Uncertainty distribution
-        if 'prediction_uncertainty' in pred_df.columns:
-            fig_unc = px.histogram(
-                pred_df, x='prediction_uncertainty',
-                title='Prediction Uncertainty Distribution',
-                nbins=20
-            )
-            st.plotly_chart(fig_unc, use_container_width=True)
+
+    # Prediction distribution
+    fig_hist = px.histogram(
+        pred_df, x='prediction',
+        title='Prediction Distribution',
+        nbins=20
+    )
+    st.plotly_chart(fig_hist, use_container_width=True)
     
     # Prediction vs actual grade (if available)
     graded_pred_df = pred_df[pred_df['grade'].notna()]
     if len(graded_pred_df) > 0:
-        col3, col4 = st.columns(2)
-        
-        with col3:
-            fig_scatter = px.scatter(
-                graded_pred_df, x='prediction', y='score', color='grade',
-                title='Prediction vs Score (Colored by Grade)',
+        fig_scatter = px.scatter(
+            graded_pred_df, x='prediction', y='score', color='grade',
+            title='Prediction vs Score (Colored by Grade)',
                 color_discrete_map={
                     'A': '#2E8B57', 'B': '#1E90FF', 'C': '#FFD700',
                     'D': '#FF8C00', 'F': '#DC143C'
                 }
             )
-            st.plotly_chart(fig_scatter, use_container_width=True)
+        st.plotly_chart(fig_scatter, use_container_width=True)
         
-        with col4:
-            if 'prediction_uncertainty' in graded_pred_df.columns:
-                fig_unc_grade = px.box(
-                    graded_pred_df, x='grade', y='prediction_uncertainty',
-                    title='Prediction Uncertainty by Grade',
-                    color='grade',
-                    color_discrete_map={
-                        'A': '#2E8B57', 'B': '#1E90FF', 'C': '#FFD700',
-                        'D': '#FF8C00', 'F': '#DC143C'
-                    }
-                )
-                st.plotly_chart(fig_unc_grade, use_container_width=True)
 
 
 def create_active_learning_progression_plots(df: pd.DataFrame):
@@ -337,7 +309,7 @@ def export_interface(df: pd.DataFrame, session_id: str, session_name: str):
                 # Columns to export, similar to CSV
                 export_cols = [
                     'id', 'name', 'smiles', 'score', 'grade', 'grade_timestamp',
-                    'prediction', 'prediction_uncertainty', 'clashes', 'strain_energy',
+                    'prediction', 'clashes', 'strain_energy',
                     'num_interactions'
                 ]
                 
@@ -384,7 +356,7 @@ def export_interface(df: pd.DataFrame, session_id: str, session_name: str):
         pred_count = df['prediction'].notna().sum()
         if pred_count > 0:
             if st.button(f"🤖 Predictions Summary ({pred_count} predictions)", use_container_width=True):
-                pred_df = df[df['prediction'].notna()][['name', 'score', 'prediction', 'prediction_uncertainty', 'grade']]
+                pred_df = df[df['prediction'].notna()][['name', 'score', 'prediction', 'grade']]
                 pred_df = pred_df.dropna(subset=['prediction'])
                 csv_data = pred_df.to_csv(index=False)
                 st.download_button(
@@ -560,14 +532,10 @@ def main():
         if len(pred_df) > 0:
             st.subheader("Recent Predictions")
             
-            display_columns = ['name', 'score', 'prediction', 'prediction_uncertainty', 'grade']
+            display_columns = ['name', 'score', 'prediction', 'grade']
             display_columns = [col for col in display_columns if col in pred_df.columns]
             
-            # Sort by uncertainty (highest first)
-            if 'prediction_uncertainty' in pred_df.columns:
-                pred_df_sorted = pred_df.sort_values('prediction_uncertainty', ascending=False)
-            else:
-                pred_df_sorted = pred_df.sort_values('prediction')
+            pred_df_sorted = pred_df.sort_values('prediction')
             
             st.dataframe(
                 pred_df_sorted[display_columns].head(20),
