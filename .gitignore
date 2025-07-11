@@ -25,3 +25,4 @@ test_data/test_session/metadata.json
 test_data/test_session/molecules.pkl
 benchmark_script.py
 pages/3_🎯_Active_Learning.py
+data.ipynb
