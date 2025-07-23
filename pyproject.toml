@@ -1,3 +1,60 @@
+[project]
+name = "pickm8"
+version = "1.0.0"  # version set dynamically in GitHub Actions from Git tags
+description = "PickM8: Active Learning for Docking Hit Selection"
+authors = [{ name = "AML Lacour", email = "alacournola@gmail.com" }]
+keywords = ["machine learning", "active learning", "docking", "drug discovery", "chemoinformatics", "bioinformatics"]
+license = { text = "GNU" }
+readme = "README.md"
+classifiers = [
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License (GPL)",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "descriptastorus>=2.0.0,<3",
+	"biopython<=1.75",
+	"streamlit>=1.35.0,<2",
+	"colorlog",
+	"matplotlib>=3.0.0,<4",
+	"tqdm",
+	"scikit-fingerprints",
+	"networkx",
+	"openbabel>=3.1.1,<4",
+	"xopen",
+	"streamlit-molsar>=0.3.0",
+	"plip",
+	"prolif",
+	"posecheck",
+	"cdpkit>=1.2.0",
+	"mord",
+	"MDAnalysis>=2.8.0,<1",
+	"plotly>=5.0.0",
+	"seaborn>=0.12.2,<1",
+    "e3fp>=1.2.6,<2",
+    "joblib>=1.0.0,<2",
+    "mordredcommunity>=2.0.0,<3",
+    "numba<1",
+    "numpy>=1.20.0,<2",
+    "pandas<3",
+    "rdkit",
+    "scikit-learn>=1.3.1,<2",
+    "scipy>=1.0.0,<2",
+    "tqdm>=4.0.0,<5"
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
