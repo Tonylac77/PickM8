@@ -3,7 +3,7 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - python<=3.9
+  - python>=3.10
   - streamlit>=1.35.0
   - rdkit
   - biopython<=1.75
