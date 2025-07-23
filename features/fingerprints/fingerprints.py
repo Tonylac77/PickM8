@@ -1,72 +1,36 @@
 """Fingerprint computation functions using scikit-fingerprints."""
-import pandas as pd
-import numpy as np
 import logging
-from typing import List, Optional, Dict, Any
-from rdkit import Chem
-from concurrent.futures import ProcessPoolExecutor, as_completed
 import multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from typing import Any, Dict, List, Optional
+
+import numpy as np
+import pandas as pd
+from rdkit import Chem
+
+from skfp.fingerprints import (
+    E3FPFingerprint,
+    ECFPFingerprint,
+    ElectroShapeFingerprint,
+    FunctionalGroupsFingerprint,
+    MACCSFingerprint,
+    PatternFingerprint,
+    PharmacophoreFingerprint,
+    RDKitFingerprint,
+)
 
 logger = logging.getLogger(__name__)
 
 #disable rdkit warnings
 from rdkit import RDLogger
+
 RDLogger.DisableLog('rdApp.*')  
 
-# Try to import scikit-fingerprints
-try:
-    from skfp.fingerprints import (
-        E3FPFingerprint,
-        ECFPFingerprint,
-        ElectroShapeFingerprint,
-        FunctionalGroupsFingerprint,
-        MACCSFingerprint,
-        RDKitFingerprint,
-        PatternFingerprint,
-        PharmacophoreFingerprint
-    )
-    SKFP_AVAILABLE = True
-except ImportError:
-    SKFP_AVAILABLE = False
-    logger.warning("scikit-fingerprints not available")
-
-# Try to import MapChiral (legacy support)
-try:
-    from mapchiral.mapchiral import encode as mapchiral_encode
-    MAPCHIRAL_AVAILABLE = True
-except ImportError:
-    MAPCHIRAL_AVAILABLE = False
-    logger.warning("MapChiral not available")
-
-def is_mapchiral_available() -> bool:
-    """Check if MapChiral is available (legacy function for tests)."""
-    return MAPCHIRAL_AVAILABLE
-
-def is_skfp_available() -> bool:
-    """Check if scikit-fingerprints is available."""
-    return SKFP_AVAILABLE
-
-
-def compute_mapchiral_fingerprint(
-    mol: Chem.Mol,
-    max_radius: int = 2,
-    n_permutations: int = 2048
-) -> Optional[List[float]]:
-    """Compute MapChiral fingerprint if available (legacy support)."""
-    try:
-        if mol is None or not MAPCHIRAL_AVAILABLE:
-            return None
-
-        fp = mapchiral_encode(mol, max_radius=max_radius, n_permutations=n_permutations)
-        return fp.tolist() if fp is not None else None
-    except Exception as e:
-        logger.error(f"Error computing MapChiral fingerprint: {e}")
-        return None
 
 def compute_e3fp_fingerprint(mol: Chem.Mol, **kwargs) -> Optional[List[int]]:
     """Compute E3FP fingerprint using scikit-fingerprints."""
     try:
-        if mol is None or not SKFP_AVAILABLE:
+        if mol is None:
             return None
         
         fp = E3FPFingerprint(**kwargs)
@@ -79,7 +43,7 @@ def compute_e3fp_fingerprint(mol: Chem.Mol, **kwargs) -> Optional[List[int]]:
 def compute_ecfp_fingerprint(mol: Chem.Mol, **kwargs) -> Optional[List[int]]:
     """Compute ECFP fingerprint using scikit-fingerprints."""
     try:
-        if mol is None or not SKFP_AVAILABLE:
+        if mol is None:
             return None
         
         fp = ECFPFingerprint(**kwargs)
@@ -92,7 +56,7 @@ def compute_ecfp_fingerprint(mol: Chem.Mol, **kwargs) -> Optional[List[int]]:
 def compute_electroshape_fingerprint(mol: Chem.Mol, **kwargs) -> Optional[List[float]]:
     """Compute ElectroShape fingerprint using scikit-fingerprints."""
     try:
-        if mol is None or not SKFP_AVAILABLE:
+        if mol is None:
             return None
         
         fp = ElectroShapeFingerprint(**kwargs)
@@ -105,7 +69,7 @@ def compute_electroshape_fingerprint(mol: Chem.Mol, **kwargs) -> Optional[List[f
 def compute_functional_groups_fingerprint(mol: Chem.Mol, **kwargs) -> Optional[List[int]]:
     """Compute FunctionalGroups fingerprint using scikit-fingerprints."""
     try:
-        if mol is None or not SKFP_AVAILABLE:
+        if mol is None:
             return None
         
         fp = FunctionalGroupsFingerprint(**kwargs)
@@ -118,7 +82,7 @@ def compute_functional_groups_fingerprint(mol: Chem.Mol, **kwargs) -> Optional[L
 def compute_maccs_fingerprint(mol: Chem.Mol, **kwargs) -> Optional[List[int]]:
     """Compute MACCS fingerprint using scikit-fingerprints."""
     try:
-        if mol is None or not SKFP_AVAILABLE:
+        if mol is None:
             return None
         
         fp = MACCSFingerprint(**kwargs)
@@ -131,7 +95,7 @@ def compute_maccs_fingerprint(mol: Chem.Mol, **kwargs) -> Optional[List[int]]:
 def compute_pattern_fingerprint(mol: Chem.Mol, **kwargs) -> Optional[List[int]]:
     """Compute Pattern fingerprint using scikit-fingerprints."""
     try:
-        if mol is None or not SKFP_AVAILABLE:
+        if mol is None:
             return None
         
         fp = PatternFingerprint(**kwargs)
@@ -144,7 +108,7 @@ def compute_pattern_fingerprint(mol: Chem.Mol, **kwargs) -> Optional[List[int]]:
 def compute_pharmacophore_fingerprint(mol: Chem.Mol, **kwargs) -> Optional[List[int]]:
     """Compute Pharmacophore fingerprint using scikit-fingerprints."""
     try:
-        if mol is None or not SKFP_AVAILABLE:
+        if mol is None:
             return None
         
         fp = PharmacophoreFingerprint(**kwargs)
@@ -157,7 +121,7 @@ def compute_pharmacophore_fingerprint(mol: Chem.Mol, **kwargs) -> Optional[List[
 def compute_skfp_rdkit_fingerprint(mol: Chem.Mol, **kwargs) -> Optional[List[int]]:
     """Compute RDKit fingerprint using scikit-fingerprints."""
     try:
-        if mol is None or not SKFP_AVAILABLE:
+        if mol is None:
             return None
         
         fp = RDKitFingerprint(**kwargs)
@@ -175,14 +139,6 @@ def _compute_fingerprints_worker(args):
         return idx, {fp_type: None for fp_type in get_available_fingerprint_types()}
     
     results = {}
-    
-    # Legacy MapChiral fingerprint (kept for backward compatibility)
-    if config.get('compute_mapchiral', False):
-        results['mapchiral_fp'] = compute_mapchiral_fingerprint(
-            mol,
-            max_radius=config.get('mapchiral_max_radius', 2),
-            n_permutations=config.get('mapchiral_n_permutations', 2048)
-        )
     
     # scikit-fingerprints
     if config.get('compute_e3fp', False):
@@ -298,8 +254,6 @@ def get_fingerprint_statistics(df: pd.DataFrame) -> Dict[str, Any]:
 
     stats = {
         "total_molecules": total,
-        "mapchiral_available": MAPCHIRAL_AVAILABLE,
-        "skfp_available": SKFP_AVAILABLE
     }
 
     # Calculate statistics for all fingerprint types

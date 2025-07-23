@@ -25,24 +25,6 @@ class TestFingerprints:
         return test_data_dir / "1fvv_l.sdf"
 
 
-    def test_mapchiral_fingerprints_availability(self, ligand_file):
-        """Test MapChiral fingerprint computation (if available)."""
-        if not ligand_file.exists():
-            pytest.skip("Test ligand file not available")
-        
-        is_available = is_mapchiral_available()
-        assert isinstance(is_available, bool)
-        
-        df = load_sdf(str(ligand_file))
-        mol = df['mol'].iloc[0]
-        
-        fp = compute_mapchiral_fingerprint(mol)
-        
-        if is_available:
-            assert fp is not None or fp is None  # Could fail for technical reasons
-        else:
-            assert fp is None
-
     def test_e3fp_fingerprints_real_data(self, ligand_file):
         """Test E3FP fingerprint computation with real molecule."""
         if not ligand_file.exists():
@@ -150,9 +132,6 @@ class TestFingerprints:
 
     def test_fingerprints_invalid_molecule(self):
         """Test fingerprint computation with None molecule."""
-        
-        mapchiral_fp = compute_mapchiral_fingerprint(None)
-        assert mapchiral_fp is None
         
         # Test scikit-fingerprints with None molecule
         e3fp_fp = compute_e3fp_fingerprint(None)

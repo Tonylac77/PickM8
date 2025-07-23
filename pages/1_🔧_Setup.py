@@ -1,14 +1,11 @@
 """PickM8 Setup Page - Session Creation and Loading"""
 import streamlit as st
 import logging
-from pathlib import Path
 
 # Import from new modular structure
 from sessions import sessions
 from data_io import molecules
-from features import fingerprints, interactions
-from analysis import grading, pose_quality
-from ui.components import forms, progress_displays
+from ui.components import forms
 from utils.config import build_session_config, ConfigurationError
 
 # Configure logging

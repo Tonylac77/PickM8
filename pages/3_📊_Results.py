@@ -5,16 +5,11 @@ Using functional data processing approach.
 
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.express as px
-import plotly.graph_objects as go
-from datetime import datetime
-from pathlib import Path
 
 # Import from new modular structure
 from sessions import sessions
-from data_io import molecules
-from analysis import grading, statistics
+from analysis import grading
 
 st.set_page_config(page_title="Results - PickM8", page_icon="media/pickm8_white_logoonly.png", layout="wide")
 

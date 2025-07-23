@@ -6,10 +6,9 @@ from typing import Dict, Any
 
 # Import from new modular structure
 from sessions import sessions
-from data_io import molecules
 from machine_learning import ml_models
-from analysis import grading, statistics, similarity
-from ui.components import molecule_viewer, progress_displays, forms
+from analysis import grading, similarity
+from ui.components import molecule_viewer, forms
 
 logger = logging.getLogger(__name__)
 
@@ -427,9 +426,11 @@ def train_model(df: pd.DataFrame):
             config = metadata.get('config', {})
             model_config = config.get('model_config')
             
-            # Use default fingerprint configuration (ECFP, FunctionalGroups, MACCS, Interaction)
-            # Train model with default fingerprint selection
-            model, metrics = ml_models.train_model(df, model_config)
+            # Get fingerprint configuration from session config
+            fingerprint_config = config.get('fingerprint_config')
+            
+            # Train model with automatic fingerprint selection based on available data
+            model, metrics = ml_models.train_model(df, model_config, fingerprint_config)
 
             # Update predictions with trained model
             df_updated = ml_models.update_predictions(df, model, metrics)
@@ -476,8 +477,11 @@ def train_model_with_config_update(df: pd.DataFrame):
             df_clear['prediction'] = None
             df_clear['prediction_timestamp'] = None
             
-            # Train model with new configuration using default fingerprint selection
-            model, metrics = ml_models.train_model(df_clear, model_config)
+            # Get fingerprint configuration from session config
+            fingerprint_config = config.get('fingerprint_config')
+            
+            # Train model with new configuration and automatic fingerprint selection
+            model, metrics = ml_models.train_model(df_clear, model_config, fingerprint_config)
 
             # Update predictions with new model
             df_updated = ml_models.update_predictions(df_clear, model, metrics)
